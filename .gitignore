@@ -1,0 +1,51 @@
+# Secrets. SODAK-TECH-STACK.md §5.6: never in images, repositories, or
+# environment files under version control.
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+credentials.json
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+env/
+*.egg-info/
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+
+# Django
+staticfiles/
+media/
+*.log
+db.sqlite3
+
+# Node / frontend (for when the Next.js app lands)
+node_modules/
+.next/
+out/
+.turbo/
+*.tsbuildinfo
+
+# Editors
+.vscode/
+.idea/
+*.swp
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Scratch
+tmp/
+scratch/

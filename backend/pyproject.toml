@@ -1,0 +1,48 @@
+[project]
+name = "sodak-tech-backend"
+version = "0.1.0"
+description = "Sodak-Tech judge platform API"
+requires-python = ">=3.13"
+
+[tool.ruff]
+line-length = 100
+target-version = "py313"
+extend-exclude = ["*/migrations/*"]
+
+[tool.ruff.lint]
+select = [
+    "E",    # pycodestyle
+    "F",    # pyflakes
+    "I",    # isort
+    "UP",   # pyupgrade
+    "B",    # bugbear
+    "DJ",   # flake8-django
+    "S",    # bandit -- security lint matters more than usual here
+    "T20",  # no print()
+]
+ignore = [
+    "S101",  # assert is fine in tests
+]
+
+[tool.ruff.lint.per-file-ignores]
+"*/tests/*" = ["S105", "S106"]  # hardcoded test passwords are fine
+"config/settings/dev.py" = ["S105"]
+
+[tool.pytest.ini_options]
+DJANGO_SETTINGS_MODULE = "config.settings.dev"
+python_files = ["test_*.py", "*_test.py"]
+addopts = "--strict-markers --reuse-db"
+testpaths = ["apps"]
+
+[tool.mypy]
+python_version = "3.13"
+plugins = ["mypy_django_plugin.main", "mypy_drf_plugin.main"]
+strict_optional = true
+warn_unused_ignores = true
+exclude = ["migrations/"]
+
+[tool.mypy.django-stubs]
+django_settings_module = "config.settings.dev"
+
+[tool.coverage.run]
+omit = ["*/migrations/*", "*/tests/*", "config/*"]

@@ -1,0 +1,40 @@
+# Runtime dependencies, pinned exactly.
+# SODAK-TECH-STACK.md §5.5: "All dependencies pinned by lockfile."
+#
+# Django 6.0 is not an LTS. It is chosen because it is the first release
+# supporting Python 3.14, which keeps host and container on one runtime.
+# Plan to move to 6.2 LTS when it lands; nothing here depends on 6.0-only APIs.
+
+Django==6.0.7
+djangorestframework==3.17.1
+
+# Database. psycopg 3 is the current driver; the binary extra avoids
+# needing libpq headers at image build time.
+psycopg[binary]==3.3.4
+
+# Cache, and the leaderboard store in Phase 2.
+redis==6.4.0
+django-redis==6.0.0
+
+# Background jobs. Celery is the inherited choice (SODAK-TECH-STACK.md §1).
+# Redis is the broker for local development only -- production uses a managed
+# durable queue (§4.1: "a broker restart during a contest loses submissions").
+celery==5.6.3
+
+# Config from the environment, never from committed files (§5.6).
+django-environ==0.12.0
+
+# CORS for the Next.js frontend during development.
+django-cors-headers==4.9.0
+
+# Filtering and schema generation for the REST API.
+django-filter==25.2
+drf-spectacular==0.28.0
+
+# Password hashing. §5.2 requires memory-hard hashing; Django's Argon2
+# hasher needs this.
+argon2-cffi==25.1.0
+
+# Production application server (§1: Gunicorn, async worker class).
+gunicorn==23.0.0
+uvicorn[standard]==0.41.0

@@ -1,0 +1,178 @@
+# Local development composition.
+#
+# SODAK-TECH-DESIGN.md §5.3 is explicit that this shape is for evaluation only:
+# "The upstream single-host composition is suitable for local evaluation only.
+# Production requires decomposition: managed database, managed cache, managed
+# queue, and judge workers relocated to a dedicated, network-isolated pool."
+#
+# Note what is deliberately absent: there is no judge worker service here. A
+# judge worker needs kernel-level control (§5.1) and must sit in a network zone
+# with no route to this database (§3.1). Running one alongside Postgres on a
+# developer laptop would model the exact topology the design forbids.
+
+name: sodak-backend
+
+services:
+  db:
+    image: postgres:18-bookworm
+    environment:
+      POSTGRES_USER: sodak
+      POSTGRES_PASSWORD: sodak
+      POSTGRES_DB: sodak
+    ports:
+      # High host port deliberately: 5432 is taken by a locally installed
+      # Postgres on this machine and 5433 by another stack's Traefik. Nothing
+      # inside the compose network uses this mapping -- it exists only so you
+      # can point psql or a GUI client at the container.
+      - "55432:5432"
+    volumes:
+      # Postgres 18+ images store data in a major-version-specific subdirectory
+      # so `pg_upgrade --link` can work across a single mount point. Mounting
+      # at /var/lib/postgresql/data instead makes the container refuse to start.
+      - pgdata:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U sodak -d sodak"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    # §4.7: every container declares limits. An unlimited container that leaks
+    # consumes its node and takes down everything on it.
+    deploy:
+      resources:
+        limits:
+          memory: 1g
+
+  redis:
+    image: redis:8-bookworm
+    command: >
+      redis-server
+      --save ""
+      --appendonly no
+      --maxmemory 256mb
+      --maxmemory-policy allkeys-lru
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    deploy:
+      resources:
+        limits:
+          memory: 384m
+
+  # Transaction-mode pooling in front of Postgres. §4.3 calls this mandatory,
+  # not an optimisation: without it, replicas x workers exceeds the connection
+  # limit and every request fails -- including health checks, which triggers a
+  # restart storm.
+  pgbouncer:
+    image: edoburu/pgbouncer:v1.24.1-p1
+    environment:
+      DB_HOST: db
+      DB_USER: sodak
+      DB_PASSWORD: sodak
+      DB_NAME: sodak
+      POOL_MODE: transaction
+      MAX_CLIENT_CONN: 500
+      DEFAULT_POOL_SIZE: 20
+      AUTH_TYPE: scram-sha-256
+    ports:
+      - "6432:5432"
+    depends_on:
+      db:
+        condition: service_healthy
+
+  api:
+    build:
+      context: .
+      target: runtime
+    command: >
+      python manage.py runserver 0.0.0.0:8000
+    environment:
+      DJANGO_SETTINGS_MODULE: config.settings.dev
+      # Through the pooler, so local development exercises the same path as
+      # production rather than discovering pooling problems at deploy time.
+      DATABASE_URL: postgres://sodak:sodak@pgbouncer:5432/sodak
+      REDIS_URL: redis://redis:6379/0
+      CELERY_BROKER_URL: redis://redis:6379/1
+    env_file:
+      - .env
+    ports:
+      - "8000:8000"
+    volumes:
+      - .:/app
+    depends_on:
+      pgbouncer:
+        condition: service_started
+      redis:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          memory: 1g
+
+  # One-shot migration runner.
+  #
+  # Points at `db` directly, NOT at pgbouncer. Transaction-mode pooling returns
+  # a different backend connection per transaction, which breaks the session
+  # state DDL relies on -- migrations acquire locks and run multi-statement
+  # transactions that must stay on one backend. §5.3 also wants migrations run
+  # "under a separate role, in a separate step"; wire that role in here when the
+  # managed database is provisioned.
+  #
+  #   docker compose run --rm migrate
+  migrate:
+    build:
+      context: .
+      target: runtime
+    command: python manage.py migrate --noinput
+    environment:
+      DJANGO_SETTINGS_MODULE: config.settings.dev
+      DATABASE_URL: postgres://sodak:sodak@db:5432/sodak
+      REDIS_URL: redis://redis:6379/0
+    env_file:
+      - .env
+    volumes:
+      - .:/app
+    depends_on:
+      db:
+        condition: service_healthy
+    profiles: ["tools"]
+
+  # Dispatches judge jobs and handles background work. This is NOT a sandbox
+  # runner -- it holds credentials and talks to the database, which a real
+  # judge worker must never do (§3.1).
+  worker:
+    build:
+      context: .
+      target: runtime
+    command: >
+      celery -A config worker
+      --loglevel=INFO
+      --concurrency=2
+      --queues=judge.practice,judge.contest
+    environment:
+      DJANGO_SETTINGS_MODULE: config.settings.dev
+      DATABASE_URL: postgres://sodak:sodak@pgbouncer:5432/sodak
+      REDIS_URL: redis://redis:6379/0
+      CELERY_BROKER_URL: redis://redis:6379/1
+    env_file:
+      - .env
+    volumes:
+      - .:/app
+    depends_on:
+      pgbouncer:
+        condition: service_started
+      redis:
+        condition: service_healthy
+    # §4.5: a worker terminated mid-job must release it back to the queue
+    # rather than leave a submission pending forever.
+    stop_grace_period: 30s
+    deploy:
+      resources:
+        limits:
+          memory: 768m
+
+volumes:
+  pgdata:
