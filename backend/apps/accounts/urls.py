@@ -1,7 +1,12 @@
 from django.urls import path
 
+from apps.accounts import views
+
 app_name = "accounts"
 
-# Endpoints are added as the app grows; the module exists so config/api_urls.py
-# can mount it from the start.
-urlpatterns: list[path] = []
+urlpatterns = [
+    path("csrf/", views.csrf, name="csrf"),
+    path("login/", views.login_view, name="login"),
+    path("logout/", views.logout_view, name="logout"),
+    path("me/", views.me, name="me"),
+]

@@ -1,7 +1,10 @@
 from django.urls import path
 
+from apps.progress import views
+
 app_name = "progress"
 
-# Endpoints are added as the app grows; the module exists so config/api_urls.py
-# can mount it from the start.
-urlpatterns: list[path] = []
+urlpatterns = [
+    path("me/", views.my_progress, name="me"),
+    path("leaderboard/", views.leaderboard, name="leaderboard"),
+]

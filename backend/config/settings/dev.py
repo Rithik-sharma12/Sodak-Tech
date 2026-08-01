@@ -9,7 +9,18 @@ from .base import env
 
 DEBUG = True
 
-ALLOWED_HOSTS = ["localhost", "127.0.0.1", "0.0.0.0", "api", "testserver"]  # noqa: S104
+# Loopback plus whatever DJANGO_ALLOWED_HOSTS adds, so a LAN address can be
+# appended for testing from a phone or another machine without editing code.
+# prod.py deliberately does not do this -- there the list comes from the
+# environment alone and an empty one refuses to start.
+ALLOWED_HOSTS = [
+    "localhost",
+    "127.0.0.1",
+    "0.0.0.0",  # noqa: S104
+    "api",
+    "testserver",
+    *env.list("DJANGO_ALLOWED_HOSTS", default=[]),
+]
 
 # The Next.js dev server.
 CORS_ALLOWED_ORIGINS = env.list(

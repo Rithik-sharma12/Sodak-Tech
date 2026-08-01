@@ -26,6 +26,7 @@ reading before changing the code.
 | [docs/SODAK-TECH-DESIGN.md](docs/SODAK-TECH-DESIGN.md) | What the platform is: trust zones, domain model, roles, scoring, editorial gating, contest lifecycle, edge cases, security, launch criteria |
 | [docs/SODAK-TECH-STACK.md](docs/SODAK-TECH-STACK.md) | What it is built with and how it stays standing: stack choices, performance ordering, failure containment, security hardening by layer, explicit non-choices |
 | [docs/UI-GENERATION-PROMPT.md](docs/UI-GENERATION-PROMPT.md) | Paste-ready prompts for generating the frontend with v0 or Lovable, with design tokens, screen briefs, and the API contract the generated UI must code against |
+| [docs/DEVELOPMENT-PLAN.md](docs/DEVELOPMENT-PLAN.md) | **Current build status, what's broken, and prioritised pending work.** Start here if you're picking the project up |
 
 The ten design principles in §2 of the design doc are the ones that actually
 constrain the code. The load-bearing ones so far:

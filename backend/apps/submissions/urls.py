@@ -1,7 +1,12 @@
 from django.urls import path
 
+from apps.submissions import views
+
 app_name = "submissions"
 
-# Endpoints are added as the app grows; the module exists so config/api_urls.py
-# can mount it from the start.
-urlpatterns: list[path] = []
+urlpatterns = [
+    path("", views.SubmissionListView.as_view(), name="list"),
+    path("create/", views.create_submission, name="create"),
+    path("<uuid:pk>/", views.SubmissionDetailView.as_view(), name="detail"),
+    path("<uuid:pk>/status/", views.submission_status, name="status"),
+]
