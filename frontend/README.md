@@ -1,20 +1,64 @@
-<div align="center">
-<img width="1200" height="475" alt="GHBanner" src="https://ai.google.dev/static/site-assets/images/share-ais-513315318.png" />
-</div>
+# Sodak-Tech frontend
 
-# Run and deploy your AI Studio app
+TanStack Start + React 19 learner portal for the Sodak-Tech online judge.
 
-This contains everything you need to run your app locally.
+Built from the [Stitch design](https://stitch.withgoogle.com/preview/791787020225748116)
+via [Lovable](https://lovable.dev). Live preview:
+https://ui-magic-wand-55.lovable.app
 
-View your app in AI Studio: https://ai.studio/apps/5ef7d30e-2c0b-4a33-a51b-b1dda0ec66ff
+## Stack
 
-## Run Locally
+- **TanStack Start** — Vite-based SSR with file routes
+- **TanStack Router** — shareable URLs for every screen
+- **TanStack Query** — server state and caching
+- **Tailwind CSS v4** — design tokens in `src/styles.css`
+- **shadcn/ui + Radix** — accessible primitives in `src/components/ui/`
+- **CodeMirror 6** — in-browser code editor
 
-**Prerequisites:**  Node.js
+## Development
 
+**Prerequisites:** Node 20+, backend running on `localhost:8000`.
 
-1. Install dependencies:
-   `npm install`
-2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
-3. Run the app:
-   `npm run dev`
+```bash
+cd frontend
+npm install
+npm run dev
+```
+
+Open **http://localhost:3000**. Use `localhost`, not `127.0.0.1` — session
+cookies are `SameSite=Lax` and browsers treat those hostnames as different sites.
+
+The dev server proxies `/api` to the Django backend. Override the target:
+
+```bash
+VITE_API_TARGET=http://localhost:8000 npm run dev
+```
+
+## Scripts
+
+| Command | Purpose |
+|---|---|
+| `npm run dev` | Start dev server |
+| `npm run build` | Production build |
+| `npm run preview` | Preview production build |
+| `npm run lint` | ESLint |
+
+## Project layout
+
+```
+src/
+├── routes/           File-based pages
+├── components/ui/    Design-system primitives
+├── components/       App shell, editor, guards
+├── lib/api/          Session-cookie API client
+├── data/mock.ts      Mock data for unwired screens
+└── styles.css        oklch design tokens
+```
+
+See [docs/PROJECT-STRUCTURE.md](../docs/PROJECT-STRUCTURE.md) for the full
+repository layout.
+
+## Lovable
+
+Continue editing in the [Lovable editor](https://lovable.dev/projects/7b42c109-47a0-4864-a79c-2e9c1c5fe491).
+Changes sync to this repository on push.

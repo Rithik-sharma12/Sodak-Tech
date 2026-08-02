@@ -36,6 +36,7 @@ class AuditAction(models.TextChoices):
     USER_ROLE_CHANGED = "user.role_changed", "User role changed"
     USER_DISABLED = "user.disabled", "User disabled"
     USER_ENABLED = "user.enabled", "User enabled"
+    USER_PASSWORD_CHANGED = "user.password_changed", "User password changed"
     USER_MFA_RESET = "user.mfa_reset", "User MFA reset"
     IMPERSONATION_STARTED = "user.impersonation_started", "Impersonation started"
 

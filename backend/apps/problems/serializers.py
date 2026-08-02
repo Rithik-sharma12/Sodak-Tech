@@ -108,8 +108,18 @@ class ProblemDetailSerializer(ProblemListSerializer):
         version = self._version(obj)
         if version is None or not version.language_images:
             return [{"id": "python", "name": "Python", "version": "3.13"}]
+        labels = {
+            "python": "Python",
+            "java": "Java",
+            "cpp": "C++",
+            "c": "C",
+        }
         return [
-            {"id": lang, "name": lang.title(), "version": image.split(":")[-1][:16]}
+            {
+                "id": lang,
+                "name": labels.get(lang, lang.title()),
+                "version": image.split(":")[-1][:16],
+            }
             for lang, image in version.language_images.items()
         ]
 

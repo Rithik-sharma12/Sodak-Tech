@@ -25,7 +25,7 @@ from rest_framework.generics import ListAPIView
 from rest_framework.response import Response
 
 from apps.accounts.models import Role
-from apps.accounts.permissions import IsAdmin, IsProblemSetter, IsSuperAdmin
+from apps.accounts.permissions import HasRecentReauth, IsAdmin, IsProblemSetter, IsSuperAdmin
 from apps.administration.serializers import (
     AdminContestSerializer,
     AdminProblemDetailSerializer,
@@ -144,7 +144,7 @@ class AdminUserListView(ListAPIView):
 
 
 @api_view(["POST"])
-@permission_classes([IsSuperAdmin])
+@permission_classes([IsSuperAdmin, HasRecentReauth])
 def change_user_role(request, user_id):
     """Assign a role.
 
@@ -184,7 +184,7 @@ def change_user_role(request, user_id):
 
 
 @api_view(["POST"])
-@permission_classes([IsAdmin])
+@permission_classes([IsAdmin, HasRecentReauth])
 def set_user_active(request, user_id):
     """Enable or disable an account.
 
@@ -277,6 +277,11 @@ def admin_problem_detail(request, slug):
         return Response(AdminProblemDetailSerializer(problem).data)
 
     if request.method == "DELETE":
+        if request.user.needs_reauth():
+            return Response(
+                {"detail": HasRecentReauth.message},
+                status=status.HTTP_403_FORBIDDEN,
+            )
         with audited(
             action=AuditAction.PROBLEM_DELETED,
             actor=request.user,
@@ -357,7 +362,7 @@ def create_problem(request):
 
 
 @api_view(["POST"])
-@permission_classes([IsProblemSetter])
+@permission_classes([IsProblemSetter, HasRecentReauth])
 def create_version(request, slug):
     """Create a new problem version with its test set.
 
@@ -558,6 +563,13 @@ def transition_contest(request, slug):
     serializer = ContestTransitionSerializer(data=request.data)
     serializer.is_valid(raise_exception=True)
     to_state = serializer.validated_data["to_state"]
+
+    if to_state == "final" and request.user.needs_reauth():
+        return Response(
+            {"detail": HasRecentReauth.message},
+            status=status.HTTP_403_FORBIDDEN,
+        )
+
     previous = contest.state
 
     try:

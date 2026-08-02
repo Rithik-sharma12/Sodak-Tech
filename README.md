@@ -11,8 +11,9 @@ cases, receive scored verdicts, track progress, and compete in timed contests.
 ```
 docs/          The specification. Read these first.
 design/        Figma UI reference — source export and per-screen frames.
-backend/       Django + DRF API. Models and scoring built; endpoints pending.
-frontend/      Next.js + TypeScript portal. Not started.
+backend/       Django + DRF API. Models, scoring, and endpoints.
+frontend/      TanStack Start learner portal (Lovable / Stitch UI).
+reference/     Archived prototypes — not part of the launch path.
 ```
 
 ## The specification
@@ -27,8 +28,9 @@ reading before changing the code.
 | [docs/SODAK-TECH-STACK.md](docs/SODAK-TECH-STACK.md) | What it is built with and how it stays standing: stack choices, performance ordering, failure containment, security hardening by layer, explicit non-choices |
 | [docs/UI-GENERATION-PROMPT.md](docs/UI-GENERATION-PROMPT.md) | Paste-ready prompts for generating the frontend with v0 or Lovable, with design tokens, screen briefs, and the API contract the generated UI must code against |
 | [docs/STITCH-PROMPTS.md](docs/STITCH-PROMPTS.md) | Per-screen prompts for designing the UI in Google Stitch, with a shared base prompt carrying the design tokens |
-| [docs/UI-BUILD-ORDER.md](docs/UI-BUILD-ORDER.md) | Every page and component still to build, sequenced so nothing is blocked by something later in the list |
 | [docs/DEVELOPMENT-PLAN.md](docs/DEVELOPMENT-PLAN.md) | **Current build status, what's broken, and prioritised pending work.** Start here if you're picking the project up |
+| [docs/UI-BUILD-ORDER.md](docs/UI-BUILD-ORDER.md) | Every page and component still to build, sequenced so nothing is blocked by something later in the list |
+| [docs/PROJECT-STRUCTURE.md](docs/PROJECT-STRUCTURE.md) | Repository layout — where backend, frontend, and archived code live |
 
 The ten design principles in §2 of the design doc are the ones that actually
 constrain the code. The load-bearing ones so far:
@@ -74,9 +76,10 @@ still intended to be kept (stack doc §2.4).
 | Backend models | Complete for the judge core — problems, versions, test groups, submissions, results, progress, contests, editorials, audit |
 | Scoring | Implemented as a pure function of stored results; 20 tests passing |
 | Audit log | Append-only, enforced by Postgres trigger against `UPDATE`/`DELETE`/`TRUNCATE` |
-| Judging | Not built. Job dispatch, worker token, result protocol are next |
-| API endpoints | Not built. URL modules are stubs |
-| Frontend | Not started. Design tokens partially extracted — see `design/` |
+| Learner API | Session auth, problems, submissions, progress, contests |
+| Frontend | TanStack Start app with 9 learner routes, design tokens, API client wired for session cookies |
+| Judging | Local demo judge only — not sandboxed (see DEVELOPMENT-PLAN §4) |
+| Admin UI | Not built yet — see UI-BUILD-ORDER Phase 2 |
 | MFA | Model fields exist; enforcement not implemented (required by §8.3 before launch) |
 
 Launch criteria are in design doc §10 and stack doc §8. Nothing there is

@@ -1,50 +1,43 @@
-import tailwindcss from '@tailwindcss/vite';
-import react from '@vitejs/plugin-react';
-import path from 'path';
-import {defineConfig} from 'vite';
+// @lovable.dev/vite-tanstack-config already includes the following — do NOT add them manually
+// or the app will break with duplicate plugins:
+//   - TanStack devtools (dev-only, first), tanstackStart, viteReact, tailwindcss, tsConfigPaths,
+//     nitro (build-only using cloudflare as a default target), VITE_* env injection, @ path alias,
+//     React/TanStack dedupe, error logger plugins, and sandbox detection (port/host/strictPort).
+// You can pass additional config via defineConfig({ vite: { ... }, etc... }) if needed.
+import { defineConfig } from "@lovable.dev/vite-tanstack-config";
 
-const API_TARGET = process.env.VITE_API_TARGET || 'http://127.0.0.1:8001';
+// The API is proxied rather than called cross-origin. Session auth rides on a
+// cookie, and same-origin keeps that simple: no CORS preflight on every
+// mutation, no SameSite edge cases, and the CSRF cookie the API sets is
+// readable back without special-casing the port.
+//
+// Production serves both behind one origin too (see deploy/nginx.conf), so the
+// browser sees the same URLs in both environments and nothing has to be
+// reconfigured between them.
+const apiTarget = process.env.VITE_API_TARGET ?? "http://localhost:8000";
 
-export default defineConfig(() => {
-  return {
-    plugins: [react(), tailwindcss()],
-    resolve: {
-      alias: {
-        '@': path.resolve(__dirname, '.'),
-      },
-    },
+const proxy = {
+  target: apiTarget,
+  changeOrigin: false, // preserve Host so Django's CSRF origin check matches
+  secure: false,
+};
+
+export default defineConfig({
+  tanstackStart: {
+    // Redirect TanStack Start's bundled server entry to src/server.ts (our SSR error wrapper).
+    // nitro/vite builds from this
+    server: { entry: "server" },
+  },
+  vite: {
     server: {
-      port: 3000,
-      host: '0.0.0.0',
-      // HMR is disabled in AI Studio via DISABLE_HMR env var.
-      hmr: process.env.DISABLE_HMR !== 'true',
-      watch: process.env.DISABLE_HMR === 'true' ? null : {},
-
-      /**
-       * Proxy the API so the browser sees a single origin.
-       *
-       * This is not a convenience. Session cookies are SameSite=Lax, and a
-       * browser treats http://localhost:3000 and http://127.0.0.1:8001 as
-       * different *sites* — so a direct cross-origin XHR silently drops the
-       * session cookie and every authenticated request returns 403.
-       *
-       * Proxying makes /api/v1/* same-origin: the cookie travels, CSRF works,
-       * and no CORS configuration is needed in development.
-       */
       proxy: {
-        '/api': {
-          target: API_TARGET,
-          // Keep the original Host header so Django's CSRF referer check
-          // sees a same-origin request.
-          changeOrigin: false,
-          secure: false,
-        },
-        '/healthz': {
-          target: API_TARGET,
-          changeOrigin: false,
-          secure: false,
-        },
+        "/api": proxy,
+        "/healthz": proxy,
+        // Django's own admin, kept reachable for the operations it is better
+        // at than a custom panel — inspecting a row, resetting a password.
+        "/django-admin": proxy,
+        "/static": proxy,
       },
     },
-  };
+  },
 });

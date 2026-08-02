@@ -28,12 +28,19 @@ media/
 *.log
 db.sqlite3
 
-# Node / frontend (for when the Next.js app lands)
+# Node / frontend
 node_modules/
 .next/
 out/
 .turbo/
 *.tsbuildinfo
+dist/
+dist-ssr/
+.output/
+.vinxi/
+.tanstack/
+.nitro/
+.wrangler/
 
 # Editors
 .vscode/

@@ -1,7 +1,7 @@
 # Running the demo
 
-Full stack on localhost: Next.js frontend → Django API → Postgres, with real
-code execution and real scoring.
+Full stack on localhost: TanStack Start frontend → Django API → Postgres, with
+real code execution and real scoring.
 
 ---
 
@@ -21,7 +21,7 @@ to submissions from anyone else.
 
 ## Prerequisites
 
-Docker (for Postgres and Redis), Python 3.13+, Node 20+, pnpm.
+Docker (for Postgres and Redis), Python 3.13+, Node 20+, npm.
 
 ## 1. Backend
 
@@ -49,11 +49,11 @@ weighted test groups and both sample and hidden cases.
 
 ```bash
 cd frontend
-pnpm install
-pnpm dev
+npm install
+npm run dev
 ```
 
-Then open **http://localhost:3000**.
+Then open **http://localhost:3000** (sign-in is at `/`, not `/login`).
 
 ### Use `localhost`, not `127.0.0.1`
 
@@ -66,7 +66,7 @@ open must say `localhost`.
 ## 3. Sign in
 
 ```
-http://localhost:3000/login
+http://localhost:3000/
 
   demo@sodak.test
   sodak-demo-2026

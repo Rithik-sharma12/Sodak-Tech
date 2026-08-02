@@ -9,11 +9,13 @@ every replica when the database blips.
 
 from django.contrib import admin
 from django.urls import include, path
+from django.views.generic import RedirectView
 from drf_spectacular.views import SpectacularAPIView, SpectacularSwaggerView
 
 from apps.common.health import liveness, readiness
 
 urlpatterns = [
+    path("", RedirectView.as_view(pattern_name="swagger-ui", permanent=False)),
     path("healthz/live", liveness, name="liveness"),
     path("healthz/ready", readiness, name="readiness"),
     path("admin/", admin.site.urls),

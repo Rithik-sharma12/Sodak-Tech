@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from django.contrib.auth import authenticate
+from django.contrib.auth.password_validation import validate_password
 from rest_framework import serializers
 
 from apps.accounts.models import User
@@ -52,4 +53,42 @@ class LoginSerializer(serializers.Serializer):
         if not user.is_active:
             raise serializers.ValidationError("This account is disabled.")
         attrs["user"] = user
+        return attrs
+
+
+class ReauthSerializer(serializers.Serializer):
+    password = serializers.CharField(write_only=True, style={"input_type": "password"})
+
+    def validate(self, attrs: dict) -> dict:
+        user = self.context["request"].user
+        if not user.check_password(attrs["password"]):
+            raise serializers.ValidationError("Incorrect password.")
+        attrs["user"] = user
+        return attrs
+
+
+class ChangePasswordSerializer(serializers.Serializer):
+    current_password = serializers.CharField(write_only=True, style={"input_type": "password"})
+    new_password = serializers.CharField(write_only=True, style={"input_type": "password"})
+
+    def validate(self, attrs: dict) -> dict:
+        user = self.context["request"].user
+        if not user.check_password(attrs["current_password"]):
+            raise serializers.ValidationError({"current_password": "Incorrect password."})
+
+        validate_password(attrs["new_password"], user=user)
+        if attrs["new_password"] == attrs["current_password"]:
+            raise serializers.ValidationError(
+                {"new_password": "The new password must be different from the current password."}
+            )
+        return attrs
+
+
+class DeleteAccountSerializer(serializers.Serializer):
+    password = serializers.CharField(write_only=True, style={"input_type": "password"})
+
+    def validate(self, attrs: dict) -> dict:
+        user = self.context["request"].user
+        if not user.check_password(attrs["password"]):
+            raise serializers.ValidationError({"password": "Incorrect password."})
         return attrs

@@ -29,11 +29,11 @@ injected script."* That matters more here than in a typical app, because the
 platform renders untrusted learner code — an XSS would read any token in
 localStorage. Do not migrate to JWT.
 
-**Frontend framework.** `react-expert` assumes a plain React SPA. The frontend is
-Next.js App Router with real URL routing. The Vite/React app in
-`sodak-tech-competitive-programming/` is a *design reference* only — it has no URL
-routing (navigation is `activeTab` state), so problem links cannot be shared and
-refresh loses your place. Port its layouts; do not adopt its architecture.
+**Frontend framework.** The learner portal is **TanStack Start** (Vite + TanStack
+Router) with real URL routing. The archived tab-based Vite SPA in
+`reference/frontend-vite-spa/` is a layout reference only — it has no URL
+routing, so problem links cannot be shared and refresh loses your place. Port
+its layouts; do not adopt its architecture.
 
 ## Non-negotiables
 
@@ -69,7 +69,7 @@ outstanding item (design plan §4).
 
 - Python: ruff, line length 100, type hints. Tests with pytest.
 - TypeScript: strict mode. No `any` without a comment explaining why.
-- All colour through design tokens in `frontend/app/globals.css`. No hardcoded
+- All colour through design tokens in `frontend/src/styles.css`. No hardcoded
   hex in components, no `dark:` variants — the token set switches themes.
 - Comments explain *why*, citing a doc section where one applies. Do not narrate
   what the code already says.

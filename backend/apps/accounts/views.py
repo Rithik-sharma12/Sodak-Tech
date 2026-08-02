@@ -18,7 +18,16 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.throttling import ScopedRateThrottle
 
-from apps.accounts.serializers import LoginSerializer, UserSerializer
+from apps.accounts.permissions import HasRecentReauth
+from apps.accounts.serializers import (
+    ChangePasswordSerializer,
+    DeleteAccountSerializer,
+    LoginSerializer,
+    ReauthSerializer,
+    UserSerializer,
+)
+from apps.audit.models import AuditAction
+from apps.audit.services import audited
 
 
 class AuthThrottle(ScopedRateThrottle):
@@ -84,3 +93,66 @@ def me(request: Request) -> Response:
             context={"problems_solved": solved, "total_submissions": total},
         ).data
     )
+
+
+@api_view(["POST"])
+@permission_classes([IsAuthenticated])
+@throttle_classes([AuthThrottle])
+def reauth_view(request: Request) -> Response:
+    """Refresh the re-auth timestamp for sensitive operations (§8.3)."""
+    serializer = ReauthSerializer(data=request.data, context={"request": request})
+    serializer.is_valid(raise_exception=True)
+
+    request.user.last_reauth_at = timezone.now()
+    request.user.save(update_fields=["last_reauth_at", "updated_at"])
+    return Response({"reauthenticated_at": request.user.last_reauth_at.isoformat()})
+
+
+@api_view(["POST"])
+@permission_classes([IsAuthenticated, HasRecentReauth])
+def change_password_view(request: Request) -> Response:
+    """Change password after recent re-authentication (§8.3)."""
+    serializer = ChangePasswordSerializer(data=request.data, context={"request": request})
+    serializer.is_valid(raise_exception=True)
+
+    user = request.user
+    user.set_password(serializer.validated_data["new_password"])
+    user.last_reauth_at = timezone.now()
+
+    with audited(
+        action=AuditAction.USER_PASSWORD_CHANGED,
+        actor=user,
+        target_type="user",
+        target_id=str(user.pk),
+        summary=f"Password changed for {user.username}",
+        request=request,
+    ):
+        user.save(update_fields=["password", "last_reauth_at", "updated_at"])
+
+    # Keep the current session valid so a successful password change does not
+    # look like an auth failure to the user.
+    login(request, user)
+    return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+@api_view(["POST"])
+@permission_classes([IsAuthenticated, HasRecentReauth])
+def delete_account_view(request: Request) -> Response:
+    """Soft-delete the caller's own account (§9) with password confirmation."""
+    serializer = DeleteAccountSerializer(data=request.data, context={"request": request})
+    serializer.is_valid(raise_exception=True)
+
+    user = request.user
+    with audited(
+        action=AuditAction.USER_DISABLED,
+        actor=user,
+        target_type="user",
+        target_id=str(user.pk),
+        summary=f"Self-deactivated account {user.username}",
+        request=request,
+    ):
+        user.is_active = False
+        user.delete()
+
+    logout(request)
+    return Response(status=status.HTTP_204_NO_CONTENT)

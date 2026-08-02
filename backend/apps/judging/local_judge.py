@@ -57,6 +57,22 @@ class LocalJudgeDisabled(RuntimeError):
     pass
 
 
+LANGUAGE_ALIASES = {
+    "python": "python",
+    "python3": "python",
+    "py": "python",
+    "java": "java",
+    "cpp": "cpp",
+    "c++": "cpp",
+    "cc": "cpp",
+    "c": "c",
+}
+
+
+def _canonical_language(language: str) -> str:
+    return LANGUAGE_ALIASES.get(language.strip().lower(), language.strip().lower())
+
+
 def _normalise(text: str) -> str:
     """§7.1: normalise line endings and strip trailing whitespace before
     comparison, so a trailing newline is not a wrong answer."""
@@ -64,30 +80,92 @@ def _normalise(text: str) -> str:
     return "\n".join(line.rstrip() for line in lines).strip()
 
 
-def _run_once(source: str, language: str, stdin_data: str) -> tuple[str, str, int]:
-    """Execute once. Returns (stdout, stderr, returncode)."""
-    if language not in {"python", "python3"}:
-        return "", f"The local demo judge only supports Python, not {language!r}.", -1
+def _prepare_runtime(source: str, language: str, workspace: Path) -> tuple[list[str] | None, str]:
+    """Prepare executable runtime for a language.
 
-    with tempfile.TemporaryDirectory() as tmpdir:
-        script = Path(tmpdir) / "solution.py"
+    Returns (run_command, compile_error). If compile_error is non-empty,
+    run_command will be None.
+    """
+    canonical = _canonical_language(language)
+
+    if canonical == "python":
+        script = workspace / "solution.py"
         script.write_text(source, encoding="utf-8")
+        return [sys.executable, "-I", "-S", str(script)], ""
 
+    if canonical == "java":
+        source_file = workspace / "Main.java"
+        source_file.write_text(source, encoding="utf-8")
         try:
-            proc = subprocess.run(  # noqa: S603 -- demo only, see module docstring
-                [sys.executable, "-I", "-S", str(script)],
-                input=stdin_data,
+            compile_proc = subprocess.run(  # noqa: S603 -- demo only, see module docstring
+                ["javac", str(source_file)],
                 capture_output=True,
                 text=True,
-                timeout=HARD_TIMEOUT_SECONDS,
-                cwd=tmpdir,
+                cwd=workspace,
             )
-        except subprocess.TimeoutExpired:
-            return "", "__TIMEOUT__", -1
-        except Exception as exc:  # noqa: BLE001
-            return "", f"runner error: {exc}", -1
+        except FileNotFoundError:
+            return None, "Java compiler not found (javac missing on host)."
+        if compile_proc.returncode != 0:
+            return None, (compile_proc.stderr or compile_proc.stdout or "Compile failed")[:4000]
+        return ["java", "-cp", str(workspace), "Main"], ""
 
-        return proc.stdout, proc.stderr, proc.returncode
+    if canonical == "cpp":
+        source_file = workspace / "main.cpp"
+        exe_file = workspace / "main.exe"
+        source_file.write_text(source, encoding="utf-8")
+        try:
+            compile_proc = subprocess.run(  # noqa: S603 -- demo only, see module docstring
+                ["g++", "-O2", "-std=c++17", str(source_file), "-o", str(exe_file)],
+                capture_output=True,
+                text=True,
+                cwd=workspace,
+            )
+        except FileNotFoundError:
+            return None, "C++ compiler not found (g++ missing on host)."
+        if compile_proc.returncode != 0:
+            return None, (compile_proc.stderr or compile_proc.stdout or "Compile failed")[:4000]
+        return [str(exe_file)], ""
+
+    if canonical == "c":
+        source_file = workspace / "main.c"
+        exe_file = workspace / "main.exe"
+        source_file.write_text(source, encoding="utf-8")
+        try:
+            compile_proc = subprocess.run(  # noqa: S603 -- demo only, see module docstring
+                ["gcc", "-O2", "-std=c17", str(source_file), "-o", str(exe_file)],
+                capture_output=True,
+                text=True,
+                cwd=workspace,
+            )
+        except FileNotFoundError:
+            return None, "C compiler not found (gcc missing on host)."
+        if compile_proc.returncode != 0:
+            return None, (compile_proc.stderr or compile_proc.stdout or "Compile failed")[:4000]
+        return [str(exe_file)], ""
+
+    return None, (
+        f"Unsupported language {language!r}. Supported languages: "
+        "python, java, cpp/c++, c."
+    )
+
+
+def _run_once(run_cmd: list[str], stdin_data: str, *, timeout_seconds: float, cwd: Path) -> tuple[str, str, int]:
+    """Execute once. Returns (stdout, stderr, returncode)."""
+    try:
+        proc = subprocess.run(  # noqa: S603 -- demo only, see module docstring
+            run_cmd,
+            input=stdin_data,
+            capture_output=True,
+            text=True,
+            timeout=timeout_seconds,
+            cwd=cwd,
+        )
+    except subprocess.TimeoutExpired:
+        return "", "__TIMEOUT__", -1
+    except Exception as exc:  # noqa: BLE001
+        return "", f"runner error: {exc}", -1
+
+    return proc.stdout, proc.stderr, proc.returncode
 
 
 @transaction.atomic
@@ -127,65 +205,110 @@ def judge_submission(submission: Submission) -> Submission:
     max_runtime = 0
     compile_output = ""
 
-    for group in groups:
-        cases = list(group.test_cases.all())
-        passed_count = 0
-        group_verdict = Verdict.ACCEPTED
-        first_failing: int | None = None
-        case_details: list[dict] = []
+    total_cases = 0
+    total_passed_cases = 0
+    timeout_seen = False
 
-        for index, case in enumerate(cases):
-            started = timezone.now()
-            stdout, stderr, returncode = _run_once(
-                submission.source_code, submission.language, case.input_data
-            )
-            elapsed_ms = int((timezone.now() - started).total_seconds() * 1000)
-            max_runtime = max(max_runtime, elapsed_ms)
-
-            if stderr == "__TIMEOUT__":
-                case_verdict = Verdict.TIME_LIMIT_EXCEEDED
-            elif returncode != 0:
-                case_verdict = Verdict.RUNTIME_ERROR
-                compile_output = compile_output or stderr[:4000]
-            elif _normalise(stdout) == _normalise(case.expected_output):
-                case_verdict = Verdict.ACCEPTED
-                passed_count += 1
-            else:
-                case_verdict = Verdict.WRONG_ANSWER
-
-            if case_verdict != Verdict.ACCEPTED and first_failing is None:
-                first_failing = index
-                group_verdict = case_verdict
-
-            # Detail is kept only for sample groups. Hidden-group inputs and
-            # expected outputs must never reach the client (§8.1).
-            if group.is_sample:
-                case_details.append(
-                    {
-                        "case_number": index + 1,
-                        "input": case.input_data,
-                        "expected": case.expected_output,
-                        "actual": stdout[:2000],
-                        "status": case_verdict,
-                        "runtime": elapsed_ms,
-                        "memory": 0,
-                    }
-                )
-
-        results.append(
-            SubmissionResult(
-                submission=submission,
-                test_group=group,
-                verdict=group_verdict,
-                passed=passed_count == len(cases) and len(cases) > 0,
-                cases_total=len(cases),
-                cases_passed=passed_count,
-                weight=group.weight,
-                max_runtime_ms=max_runtime,
-                first_failing_case_index=first_failing,
-                case_results=case_details,
-            )
+    with tempfile.TemporaryDirectory() as tmpdir:
+        workspace = Path(tmpdir)
+        run_cmd, compile_error = _prepare_runtime(
+            submission.source_code,
+            submission.language,
+            workspace,
         )
+
+        if run_cmd is None:
+            compile_output = compile_error[:4000]
+            for group in groups:
+                cases = list(group.test_cases.all())
+                results.append(
+                    SubmissionResult(
+                        submission=submission,
+                        test_group=group,
+                        verdict=Verdict.COMPILE_ERROR,
+                        passed=False,
+                        cases_total=len(cases),
+                        cases_passed=0,
+                        weight=group.weight,
+                        max_runtime_ms=0,
+                        first_failing_case_index=0 if cases else None,
+                        case_results=[],
+                    )
+                )
+                total_cases += len(cases)
+        else:
+            timeout_seconds = min(
+                HARD_TIMEOUT_SECONDS,
+                max(0.1, submission.problem_version.time_limit_ms / 1000),
+            )
+
+            for group in groups:
+                cases = list(group.test_cases.all())
+                passed_count = 0
+                group_verdict = Verdict.ACCEPTED
+                first_failing: int | None = None
+                case_details: list[dict] = []
+                group_max_runtime = 0
+
+                for index, case in enumerate(cases):
+                    started = timezone.now()
+                    stdout, stderr, returncode = _run_once(
+                        run_cmd,
+                        case.input_data,
+                        timeout_seconds=timeout_seconds,
+                        cwd=workspace,
+                    )
+                    elapsed_ms = int((timezone.now() - started).total_seconds() * 1000)
+                    max_runtime = max(max_runtime, elapsed_ms)
+                    group_max_runtime = max(group_max_runtime, elapsed_ms)
+
+                    if stderr == "__TIMEOUT__":
+                        timeout_seen = True
+                        case_verdict = Verdict.TIME_LIMIT_EXCEEDED
+                    elif returncode != 0:
+                        case_verdict = Verdict.RUNTIME_ERROR
+                        compile_output = compile_output or stderr[:4000]
+                    elif _normalise(stdout) == _normalise(case.expected_output):
+                        case_verdict = Verdict.ACCEPTED
+                        passed_count += 1
+                    else:
+                        case_verdict = Verdict.WRONG_ANSWER
+
+                    if case_verdict != Verdict.ACCEPTED and first_failing is None:
+                        first_failing = index
+                        group_verdict = case_verdict
+
+                    # Detail is kept only for sample groups. Hidden-group inputs and
+                    # expected outputs must never reach the client (§8.1).
+                    if group.is_sample:
+                        case_details.append(
+                            {
+                                "case_number": index + 1,
+                                "input": case.input_data,
+                                "expected": case.expected_output,
+                                "actual": stdout[:2000],
+                                "status": case_verdict,
+                                "runtime": elapsed_ms,
+                                "memory": 0,
+                            }
+                        )
+
+                total_cases += len(cases)
+                total_passed_cases += passed_count
+                results.append(
+                    SubmissionResult(
+                        submission=submission,
+                        test_group=group,
+                        verdict=group_verdict,
+                        passed=passed_count == len(cases) and len(cases) > 0,
+                        cases_total=len(cases),
+                        cases_passed=passed_count,
+                        weight=group.weight,
+                        max_runtime_ms=group_max_runtime,
+                        first_failing_case_index=first_failing,
+                        case_results=case_details,
+                    )
+                )
 
     SubmissionResult.objects.bulk_create(results)
 
@@ -193,6 +316,15 @@ def judge_submission(submission: Submission) -> Submission:
     submission.verdict = overall_verdict(results, expected_group_count=len(results))
     submission.raw_score = breakdown.raw
     submission.score = breakdown.final
+
+    # In timed-out runs, award partial marks by passed-case count. This keeps
+    # progress measurable when a solution is close but does not finish all
+    # cases within the time limit.
+    if submission.verdict == Verdict.TIME_LIMIT_EXCEEDED and total_cases > 0:
+        partial = (Decimal(total_passed_cases) / Decimal(total_cases)) * Decimal("100")
+        submission.raw_score = partial.quantize(Decimal("0.01"))
+        submission.score = submission.raw_score
+
     submission.max_runtime_ms = max_runtime
     submission.compile_output = compile_output
     submission.judged_at = timezone.now()

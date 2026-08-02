@@ -2,10 +2,11 @@
 
 Status of the Sodak-Tech build, what remains, and the order it should be done in.
 
-**Last updated:** 2026-08-01
+**Last updated:** 2026-08-02
 **Target:** Alpha build to demo to the client
-**Current state:** Backend substantially complete. **Frontend does not compile** —
-mid-refactor, details in §2.
+**Current state:** Backend substantially complete. Frontend consolidated from
+Lovable (`ui-magic-wand-55`) into `frontend/` — TanStack Start with 9 learner
+routes. Admin UI and several API integrations still pending.
 
 ---
 
