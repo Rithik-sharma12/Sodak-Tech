@@ -11,6 +11,8 @@ import { useEffect, type ReactNode } from "react";
 
 import appCss from "../styles.css?url";
 import { reportLovableError } from "../lib/lovable-error-reporting";
+import { ReauthProvider } from "../lib/reauth";
+import { Toaster } from "../components/ui/sonner";
 
 function NotFoundComponent() {
   return (
@@ -24,6 +26,7 @@ function NotFoundComponent() {
         <div className="mt-6">
           <Link
             to="/"
+            search={{ next: undefined }}
             className="inline-flex items-center justify-center rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90"
           >
             Go home
@@ -84,11 +87,31 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
       { title: "Sign in — Sodak-Tech Online Judge" },
       { property: "og:title", content: "Sign in — Sodak-Tech Online Judge" },
       { name: "twitter:title", content: "Sign in — Sodak-Tech Online Judge" },
-      { name: "description", content: "Sign in to Sodak-Tech to practice algorithms, enter timed contests and track your rating." },
-      { property: "og:description", content: "Sign in to Sodak-Tech to practice algorithms, enter timed contests and track your rating." },
-      { name: "twitter:description", content: "Sign in to Sodak-Tech to practice algorithms, enter timed contests and track your rating." },
-      { property: "og:image", content: "https://pub-bb2e103a32db4e198524a2e9ed8f35b4.r2.dev/28f1e0f6-e189-4a6f-b8ce-90ca7578999a/id-preview-ef1cd0d6--7b42c109-47a0-4864-a79c-2e9c1c5fe491.lovable.app-1785599234447.png" },
-      { name: "twitter:image", content: "https://pub-bb2e103a32db4e198524a2e9ed8f35b4.r2.dev/28f1e0f6-e189-4a6f-b8ce-90ca7578999a/id-preview-ef1cd0d6--7b42c109-47a0-4864-a79c-2e9c1c5fe491.lovable.app-1785599234447.png" },
+      {
+        name: "description",
+        content:
+          "Sign in to Sodak-Tech to practice algorithms, enter timed contests and track your rating.",
+      },
+      {
+        property: "og:description",
+        content:
+          "Sign in to Sodak-Tech to practice algorithms, enter timed contests and track your rating.",
+      },
+      {
+        name: "twitter:description",
+        content:
+          "Sign in to Sodak-Tech to practice algorithms, enter timed contests and track your rating.",
+      },
+      {
+        property: "og:image",
+        content:
+          "https://pub-bb2e103a32db4e198524a2e9ed8f35b4.r2.dev/28f1e0f6-e189-4a6f-b8ce-90ca7578999a/id-preview-ef1cd0d6--7b42c109-47a0-4864-a79c-2e9c1c5fe491.lovable.app-1785599234447.png",
+      },
+      {
+        name: "twitter:image",
+        content:
+          "https://pub-bb2e103a32db4e198524a2e9ed8f35b4.r2.dev/28f1e0f6-e189-4a6f-b8ce-90ca7578999a/id-preview-ef1cd0d6--7b42c109-47a0-4864-a79c-2e9c1c5fe491.lovable.app-1785599234447.png",
+      },
     ],
     links: [
       {
@@ -131,7 +154,10 @@ function RootComponent() {
   return (
     <QueryClientProvider client={queryClient}>
       {/* Required: nested routes render here. Removing <Outlet /> breaks all child routes. */}
-      <Outlet />
+      <ReauthProvider>
+        <Outlet />
+      </ReauthProvider>
+      <Toaster />
     </QueryClientProvider>
   );
 }

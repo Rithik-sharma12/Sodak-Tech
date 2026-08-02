@@ -2,6 +2,11 @@
 
 This command creates tags, a public problem, versioned test groups, and marks
 the version as published so submissions can be exercised immediately.
+
+The problem is judge_mode="signature": learners submit only the `twoSum`
+function and the judge merges it into a setter-authored driver that handles the
+stdin/stdout contract. `signature_templates` carry the per-language (starter,
+driver) pairs, so this one file is the whole authoring story.
 """
 
 from __future__ import annotations
@@ -11,9 +16,198 @@ from django.core.management.base import BaseCommand, CommandError
 from django.db import transaction
 from django.utils import timezone
 
-from apps.problems.models import Difficulty, Problem, ProblemVersion, Tag, TestCase, TestGroup
+from apps.problems.models import (
+    Difficulty,
+    JudgingMode,
+    Problem,
+    ProblemVersion,
+    Tag,
+    TestCase,
+    TestGroup,
+)
 
 User = get_user_model()
+
+# Placeholder where the submitted source is injected into the driver. Kept in
+# sync with apps/judging/local_judge.py -- the judge errors out loudly if a
+# driver loses the marker, so a mismatch cannot silently judge the wrong thing.
+USER_CODE_MARKER = "%%USER_CODE%%"
+
+
+def _template(starter: str, driver: str) -> dict[str, str]:
+    """A (starter, driver) pair for one language."""
+    if USER_CODE_MARKER not in driver:
+        raise ValueError(f"Driver template must contain {USER_CODE_MARKER!r}.")
+    return {"starter": starter, "driver": driver}
+
+
+PYTHON = _template(
+    starter='''def twoSum(nums: list[int], target: int) -> list[int]:
+    """Return the zero-based indices of two numbers that add up to target.
+
+    If no such pair exists, return an empty list.
+    """
+    ...
+''',
+    driver='''import sys
+
+
+%%USER_CODE%%
+
+
+def main() -> None:
+    data = sys.stdin.read().split()
+    idx = 0
+    n = int(data[idx])
+    idx += 1
+    nums = [int(data[i]) for i in range(idx, idx + n)]
+    idx += n
+    target = int(data[idx])
+
+    result = twoSum(nums, target)
+    if not result:
+        result = [-1, -1]
+    print(" ".join(str(x) for x in result))
+
+
+main()
+''',
+)
+
+CPP = _template(
+    starter='''#include <bits/stdc++.h>
+using namespace std;
+
+// Return the zero-based indices of the two numbers that add up to target.
+// If no such pair exists, return an empty vector.
+vector<int> twoSum(vector<int>& nums, int target) {
+    // TODO: implement
+    return {};
+}
+''',
+    driver='''#include <bits/stdc++.h>
+using namespace std;
+
+%%USER_CODE%%
+
+
+int main() {
+    ios::sync_with_stdio(false);
+    cin.tie(nullptr);
+
+    int n;
+    cin >> n;
+    vector<int> nums(n);
+    for (int i = 0; i < n; ++i) cin >> nums[i];
+    int target;
+    cin >> target;
+
+    vector<int> result = twoSum(nums, target);
+    if (result.empty()) {
+        cout << "-1 -1\\n";
+    } else {
+        for (size_t i = 0; i < result.size(); ++i) {
+            if (i) cout << ' ';
+            cout << result[i];
+        }
+        cout << '\\n';
+    }
+    return 0;
+}
+''',
+)
+
+C = _template(
+    starter='''#include <stdio.h>
+
+// Return 1 and set result[0] and result[1] to the zero-based indices of two
+// numbers that add up to target. Return 0 if no such pair exists.
+int twoSum(int* nums, int n, int target, int* result) {
+    // TODO: implement
+    (void)nums;
+    (void)n;
+    (void)target;
+    (void)result;
+    return 0;
+}
+''',
+    driver='''#include <stdio.h>
+#include <stdlib.h>
+
+%%USER_CODE%%
+
+
+int main(void) {
+    int n;
+    if (scanf("%d", &n) != 1) return 1;
+
+    int* nums = (int*)malloc((size_t)n * sizeof(int));
+    if (nums == NULL) return 1;
+    for (int i = 0; i < n; ++i) {
+        if (scanf("%d", &nums[i]) != 1) {
+            free(nums);
+            return 1;
+        }
+    }
+
+    int target;
+    if (scanf("%d", &target) != 1) {
+        free(nums);
+        return 1;
+    }
+
+    int result[2];
+    if (twoSum(nums, n, target, result)) {
+        printf("%d %d\\n", result[0], result[1]);
+    } else {
+        printf("-1 -1\\n");
+    }
+
+    free(nums);
+    return 0;
+}
+''',
+)
+
+JAVA = _template(
+    starter='''import java.util.*;
+
+class Solution {
+    // Return the zero-based indices of the two numbers that add up to target.
+    // If no such pair exists, return null.
+    public int[] twoSum(int[] nums, int target) {
+        // TODO: implement
+        return null;
+    }
+}
+''',
+    driver='''import java.io.*;
+import java.util.*;
+
+%%USER_CODE%%
+
+
+public class Main {
+    public static void main(String[] args) throws IOException {
+        BufferedReader in = new BufferedReader(new InputStreamReader(System.in));
+        int n = Integer.parseInt(in.readLine().trim());
+        int[] nums = new int[n];
+        StringTokenizer st = new StringTokenizer(in.readLine());
+        for (int i = 0; i < n; i++) {
+            nums[i] = Integer.parseInt(st.nextToken());
+        }
+        int target = Integer.parseInt(in.readLine().trim());
+
+        int[] result = new Solution().twoSum(nums, target);
+        if (result == null) {
+            System.out.println("-1 -1");
+        } else {
+            System.out.println(result[0] + " " + result[1]);
+        }
+    }
+}
+''',
+)
 
 
 class Command(BaseCommand):
@@ -44,8 +238,16 @@ class Command(BaseCommand):
 				"title": "Two Sum",
 				"statement": (
 					"Given an integer array and a target sum, return the zero-based "
-					"indices of two distinct numbers that add up to the target."
+					"indices of two distinct numbers that add up to the target.\n\n"
+					"Implement the function `twoSum(nums, target)`. The judge reads "
+					"the test input, calls your function, and compares the indices "
+					"it returns against the expected answer — no input parsing, no "
+					"printing.\n\n"
+					"If no such pair exists, return an empty result "
+					"(`[]`, `{}`, `null`; return `0` in C)."
 				),
+				# The test data the driver parses. Documented for the problem
+				# author, not rendered to learners in signature mode.
 				"input_format": (
 					"Line 1: integer n\n"
 					"Line 2: n space-separated integers\n"
@@ -79,6 +281,13 @@ class Command(BaseCommand):
 			memory_limit_mb=256,
 			output_limit_kb=1024,
 			comparison_mode="exact",
+			judge_mode=JudgingMode.SIGNATURE,
+			signature_templates={
+				"python": PYTHON,
+				"cpp": CPP,
+				"c": C,
+				"java": JAVA,
+			},
 			language_images={
 				"python": "python:3.13-slim",
 				"java": "eclipse-temurin:21",

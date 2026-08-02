@@ -5,16 +5,13 @@
  * cannot miss a cache entry because two call sites spelled the key differently.
  */
 
-import {
-  useMutation,
-  useQuery,
-  useQueryClient,
-  type UseQueryOptions,
-} from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient, type UseQueryOptions } from "@tanstack/react-query";
 
 import { api, rows } from "./client";
+import { useGuardedReauth } from "../reauth";
 import type {
   AdminContest,
+  AdminContestDetail,
   AdminDashboard,
   AdminProblemDetail,
   AdminProblemSummary,
@@ -24,6 +21,7 @@ import type {
   AuditEntry,
   Contest,
   ContestList,
+  ContestWrite,
   Difficulty,
   LeaderboardRow,
   Paginated,
@@ -57,6 +55,7 @@ export const keys = {
   adminProblems: (q?: string) => ["admin", "problems", q ?? ""] as const,
   adminProblem: (slug: string) => ["admin", "problem", slug] as const,
   adminContests: ["admin", "contests"] as const,
+  adminContest: (slug: string) => ["admin", "contest", slug] as const,
   adminTags: ["admin", "tags"] as const,
   audit: (q?: string) => ["admin", "audit", q ?? ""] as const,
 };
@@ -288,16 +287,16 @@ export function useSystemHealth() {
 export function useAdminUsers(search?: string) {
   return useQuery({
     queryKey: keys.adminUsers(search),
-    queryFn: () =>
-      api.get<Paginated<AdminUser>>("/admin/users/", { search }).then(rows),
+    queryFn: () => api.get<Paginated<AdminUser>>("/admin/users/", { search }).then(rows),
   });
 }
 
 export function useChangeRole() {
   const qc = useQueryClient();
+  const { attempt } = useGuardedReauth();
   return useMutation({
     mutationFn: ({ userId, role }: { userId: string; role: Role }) =>
-      api.post<AdminUser>(`/admin/users/${userId}/role/`, { role }),
+      attempt(() => api.post<AdminUser>(`/admin/users/${userId}/role/`, { role })),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["admin", "users"] });
       qc.invalidateQueries({ queryKey: ["admin", "audit"] });
@@ -307,9 +306,10 @@ export function useChangeRole() {
 
 export function useSetUserActive() {
   const qc = useQueryClient();
+  const { attempt } = useGuardedReauth();
   return useMutation({
     mutationFn: ({ userId, isActive }: { userId: string; isActive: boolean }) =>
-      api.post<AdminUser>(`/admin/users/${userId}/active/`, { is_active: isActive }),
+      attempt(() => api.post<AdminUser>(`/admin/users/${userId}/active/`, { is_active: isActive })),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["admin", "users"] });
       qc.invalidateQueries({ queryKey: ["admin", "audit"] });
@@ -375,8 +375,9 @@ export function useUpdateProblem(slug: string) {
 
 export function useDeleteProblem() {
   const qc = useQueryClient();
+  const { attempt } = useGuardedReauth();
   return useMutation({
-    mutationFn: (slug: string) => api.delete<void>(`/admin/problems/${slug}/`),
+    mutationFn: (slug: string) => attempt(() => api.delete<void>(`/admin/problems/${slug}/`)),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["admin"] }),
   });
 }
@@ -386,6 +387,8 @@ export interface VersionWrite {
   memory_limit_mb: number;
   comparison_mode: "exact" | "float" | "checker";
   float_tolerance?: number | null;
+  judge_mode: "io" | "signature";
+  signature_templates?: Record<string, { starter: string; driver: string }>;
   change_note?: string;
   publish: boolean;
   test_groups: {
@@ -393,15 +396,16 @@ export interface VersionWrite {
     description?: string;
     weight: number;
     is_sample: boolean;
-    cases: { input_data: string; expected_output: string }[];
+    cases: { input: string; expected_output: string }[];
   }[];
 }
 
 export function useCreateVersion(slug: string) {
   const qc = useQueryClient();
+  const { attempt } = useGuardedReauth();
   return useMutation({
     mutationFn: (payload: VersionWrite) =>
-      api.post<AdminProblemDetail>(`/admin/problems/${slug}/versions/`, payload),
+      attempt(() => api.post<AdminProblemDetail>(`/admin/problems/${slug}/versions/`, payload)),
     onSuccess: (problem) => {
       qc.setQueryData(keys.adminProblem(slug), problem);
       qc.invalidateQueries({ queryKey: ["admin"] });
@@ -413,9 +417,7 @@ export function usePublishVersion(slug: string) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (versionNumber: number) =>
-      api.post<AdminProblemDetail>(
-        `/admin/problems/${slug}/versions/${versionNumber}/publish/`,
-      ),
+      api.post<AdminProblemDetail>(`/admin/problems/${slug}/versions/${versionNumber}/publish/`),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["admin"] }),
   });
 }
@@ -434,23 +436,115 @@ export function useAdminContests() {
   });
 }
 
+export function useAdminContest(slug: string, enabled = true) {
+  return useQuery({
+    queryKey: keys.adminContest(slug),
+    queryFn: () => api.get<AdminContestDetail>(`/admin/contests/${slug}/`),
+    enabled: enabled && Boolean(slug),
+  });
+}
+
 export function useCreateContest() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (payload: Partial<AdminContest>) =>
+    mutationFn: (payload: ContestWrite) =>
       api.post<AdminContest>("/admin/contests/create/", payload),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["admin"] }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: keys.adminContests });
+      qc.invalidateQueries({ queryKey: ["admin", "audit"] });
+    },
+  });
+}
+
+export function useUpdateContest(slug: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (payload: ContestWrite) =>
+      api.patch<AdminContestDetail>(`/admin/contests/${slug}/`, payload),
+    onSuccess: (contest) => {
+      qc.setQueryData(keys.adminContest(slug), contest);
+      qc.invalidateQueries({ queryKey: keys.adminContests });
+      qc.invalidateQueries({ queryKey: keys.contests });
+      qc.invalidateQueries({ queryKey: ["admin", "audit"] });
+    },
+  });
+}
+
+export interface AttachContestProblemWrite {
+  problem_slug: string;
+  label: string;
+  order?: number;
+  points?: number;
+  version_number?: number | null;
+}
+
+export function useAttachContestProblem(slug: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (payload: AttachContestProblemWrite) =>
+      api.post<AdminContestDetail>(`/admin/contests/${slug}/problems/`, payload),
+    onSuccess: (contest) => {
+      qc.setQueryData(keys.adminContest(slug), contest);
+      qc.invalidateQueries({ queryKey: keys.adminContests });
+      qc.invalidateQueries({ queryKey: ["admin", "audit"] });
+    },
+  });
+}
+
+export function useDetachContestProblem(slug: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (problemSlug: string) =>
+      api.delete<AdminContestDetail>(`/admin/contests/${slug}/problems/`, {
+        problem: problemSlug,
+      }),
+    onSuccess: (contest) => {
+      qc.setQueryData(keys.adminContest(slug), contest);
+      qc.invalidateQueries({ queryKey: keys.adminContests });
+      qc.invalidateQueries({ queryKey: ["admin", "audit"] });
+    },
   });
 }
 
 export function useTransitionContest() {
   const qc = useQueryClient();
+  const { attempt } = useGuardedReauth();
   return useMutation({
     mutationFn: ({ slug, toState }: { slug: string; toState: string }) =>
-      api.post<AdminContest>(`/admin/contests/${slug}/transition/`, { to_state: toState }),
-    onSuccess: () => {
+      attempt(() =>
+        api.post<AdminContest>(`/admin/contests/${slug}/transition/`, { to_state: toState }),
+      ),
+    onSuccess: (contest) => {
+      // The transition response is the list serializer (no problems/detail),
+      // so invalidate rather than cache it under the detail key.
+      qc.invalidateQueries({ queryKey: keys.adminContest(contest.slug) });
       qc.invalidateQueries({ queryKey: ["admin"] });
       qc.invalidateQueries({ queryKey: keys.contests });
+    },
+  });
+}
+
+export function useCreateTag() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (payload: { name: string; slug?: string; description?: string }) =>
+      api.post<AdminTag>("/admin/tags/", payload),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: keys.adminTags });
+      qc.invalidateQueries({ queryKey: keys.tags });
+      qc.invalidateQueries({ queryKey: ["admin", "audit"] });
+    },
+  });
+}
+
+export function useDeleteTag() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (slug: string) => api.delete<void>(`/admin/tags/${slug}/`),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: keys.adminTags });
+      qc.invalidateQueries({ queryKey: keys.tags });
+      qc.invalidateQueries({ queryKey: ["admin", "audit"] });
     },
   });
 }
@@ -458,8 +552,7 @@ export function useTransitionContest() {
 export function useAuditLog(search?: string) {
   return useQuery({
     queryKey: keys.audit(search),
-    queryFn: () =>
-      api.get<Paginated<AuditEntry>>("/admin/audit/", { search }).then(rows),
+    queryFn: () => api.get<Paginated<AuditEntry>>("/admin/audit/", { search }).then(rows),
     staleTime: 10_000,
   });
 }

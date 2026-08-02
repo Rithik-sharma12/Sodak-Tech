@@ -24,7 +24,7 @@ import {
   useSubmissionStatus,
   useSubmissions,
 } from "@/lib/api/queries";
-import type { Submission } from "@/lib/api/types";
+import type { ProblemDetail, Submission } from "@/lib/api/types";
 import {
   formatMemory,
   formatRelative,
@@ -56,8 +56,10 @@ export const Route = createFileRoute("/problems/$id")({
   component: WorkspacePage,
 });
 
-/** Enough scaffolding to read input, so nobody starts from an empty buffer. */
-const STARTERS: Record<string, string> = {
+/** io-mode scaffolding: a complete program that reads stdin. Signature-mode
+ * problems get their starter from the API instead — the function stub is
+ * versioned server-side, because it is part of the problem's contract. */
+const IO_STARTERS: Record<string, string> = {
   python: `import sys
 
 def main() -> None:
@@ -101,6 +103,14 @@ public class Main {
 
 const draftKey = (slug: string, language: string) => `sodak:draft:${slug}:${language}`;
 
+/** The starting buffer for a language: the server-versioned function stub for
+ * signature problems, or the stdin scaffolding for io problems. */
+function starterFor(problem: ProblemDetail | undefined, language: string): string | null {
+  if (!problem) return null;
+  if (problem.judge_mode === "signature") return problem.starter_code[language] ?? "";
+  return IO_STARTERS[language] ?? "";
+}
+
 function WorkspacePage() {
   const { id: slug } = Route.useParams();
   const problem = useProblem(slug);
@@ -125,11 +135,15 @@ function WorkspacePage() {
   }, [languages, language, slug]);
 
   // Drafts are keyed by problem *and* language. Switching language mid-attempt
-  // must not silently discard the C++ you had already written.
+  // must not silently discard the C++ you had already written. `problem.data`
+  // is available here because language is only settled once its `languages`
+  // list has loaded; a later refetch must not re-clobber the buffer, hence the
+  // deliberately narrow dependency list.
   useEffect(() => {
     if (!language || typeof window === "undefined") return;
     const saved = localStorage.getItem(draftKey(slug, language));
-    setCode(saved ?? STARTERS[language] ?? "");
+    setCode(saved ?? starterFor(problem.data, language) ?? "");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [slug, language]);
 
   useEffect(() => {
@@ -161,8 +175,7 @@ function WorkspacePage() {
     );
   };
 
-  const submitError =
-    createSubmission.error instanceof ApiError ? createSubmission.error : null;
+  const submitError = createSubmission.error instanceof ApiError ? createSubmission.error : null;
 
   const pastSubmissions = useMemo(
     () => (history.data ?? []).filter((s) => s.kind === "submit"),
@@ -235,17 +248,37 @@ function WorkspacePage() {
             >
               <p className="whitespace-pre-wrap">{p.statement || "No statement provided yet."}</p>
 
-              {p.input_format && (
+              {/* Signature mode: the learner's contract is a function, not a
+                  program. The starter the editor pre-fills is shown here too so
+                  the shape of the answer is visible without scrolling away from
+                  the statement. I/O format sections are harness internals and
+                  are withheld — the driver parses them, the learner never does. */}
+              {p.judge_mode === "signature" && language ? (
                 <div>
-                  <h3 className="mb-1 text-sm font-semibold">Input</h3>
-                  <p className="whitespace-pre-wrap text-muted-foreground">{p.input_format}</p>
+                  <h3 className="mb-1 text-sm font-semibold">Your function</h3>
+                  <pre className="max-h-56 overflow-auto rounded bg-muted p-3 font-mono text-xs text-muted-foreground">
+                    {p.starter_code[language] || "No template for this language."}
+                  </pre>
+                  <p className="mt-2 text-xs text-muted-foreground">
+                    The judge feeds each test case into your function and checks the value it
+                    returns. No reading input, no printing output.
+                  </p>
                 </div>
-              )}
-              {p.output_format && (
-                <div>
-                  <h3 className="mb-1 text-sm font-semibold">Output</h3>
-                  <p className="whitespace-pre-wrap text-muted-foreground">{p.output_format}</p>
-                </div>
+              ) : (
+                <>
+                  {p.input_format && (
+                    <div>
+                      <h3 className="mb-1 text-sm font-semibold">Input</h3>
+                      <p className="whitespace-pre-wrap text-muted-foreground">{p.input_format}</p>
+                    </div>
+                  )}
+                  {p.output_format && (
+                    <div>
+                      <h3 className="mb-1 text-sm font-semibold">Output</h3>
+                      <p className="whitespace-pre-wrap text-muted-foreground">{p.output_format}</p>
+                    </div>
+                  )}
+                </>
               )}
               {p.constraints && (
                 <div>
@@ -364,7 +397,7 @@ function WorkspacePage() {
             <div className="flex items-center gap-2">
               <button
                 type="button"
-                onClick={() => setCode(STARTERS[language] ?? "")}
+                onClick={() => setCode(starterFor(p, language) ?? "")}
                 className="inline-flex items-center gap-1.5 rounded-md px-2 py-1.5 text-xs text-muted-foreground hover:text-foreground"
                 title="Reset to the starter template"
               >
@@ -418,9 +451,7 @@ function WorkspacePage() {
                 <div className="flex items-start gap-2 rounded-md border border-destructive/30 bg-destructive-muted/40 p-3">
                   <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-destructive" />
                   <div>
-                    <p className="text-sm font-medium text-destructive">
-                      Submission not accepted
-                    </p>
+                    <p className="text-sm font-medium text-destructive">Submission not accepted</p>
                     <p className="text-sm text-muted-foreground">{submitError.message}</p>
                     {submitError.retryAfter ? (
                       <p className="mt-1 text-xs text-muted-foreground">
@@ -480,24 +511,83 @@ function SubmissionConsole({ submission }: { submission: Submission }) {
 
       <ul className="space-y-1.5">
         {submission.results.map((group, index) => (
-          <li
-            key={index}
-            className="flex items-center justify-between rounded-md border border-border px-3 py-2 text-sm"
-          >
-            <span className="flex items-center gap-2">
-              {group.passed ? (
-                <CheckCircle2 className="h-4 w-4 text-success" />
-              ) : (
-                <XCircle className="h-4 w-4 text-destructive" />
-              )}
-              <span>{group.test_group_name}</span>
-              <span className="text-xs text-muted-foreground">weight {group.weight}</span>
-            </span>
-            <span
-              className={cn("text-xs", group.passed ? "text-success" : "text-muted-foreground")}
-            >
-              {group.cases_passed}/{group.cases_total} cases
-            </span>
+          <li key={index} className="rounded-md border border-border px-3 py-2 text-sm">
+            <div className="flex items-center justify-between">
+              <span className="flex items-center gap-2">
+                {group.passed ? (
+                  <CheckCircle2 className="h-4 w-4 text-success" />
+                ) : (
+                  <XCircle className="h-4 w-4 text-destructive" />
+                )}
+                <span>{group.test_group_name}</span>
+                <span className="text-xs text-muted-foreground">weight {group.weight}</span>
+              </span>
+              <span
+                className={cn("text-xs", group.passed ? "text-success" : "text-muted-foreground")}
+              >
+                {group.cases_passed}/{group.cases_total} cases
+              </span>
+            </div>
+
+            {/* Per-case detail exists only for sample groups (§8.1). Hidden
+                groups are judged blind — the row above is the whole story. */}
+            {group.case_results.length > 0 && (
+              <ul className="mt-2 space-y-1.5 border-t border-border/60 pt-2">
+                {group.case_results.map((c) => (
+                  <li key={c.case_number} className="rounded bg-muted/40 p-2">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="flex items-center gap-1.5 text-xs font-medium">
+                        {c.status === "accepted" ? (
+                          <CheckCircle2 className="h-3.5 w-3.5 text-success" />
+                        ) : (
+                          <XCircle className="h-3.5 w-3.5 text-destructive" />
+                        )}
+                        Case {c.case_number}
+                        <span
+                          className={cn(
+                            "ml-1",
+                            c.status === "accepted" ? "text-success" : "text-destructive",
+                          )}
+                        >
+                          {c.status.replace(/_/g, " ")}
+                        </span>
+                      </span>
+                      <span className="text-xs text-muted-foreground">
+                        {formatRuntime(c.runtime)}
+                      </span>
+                    </div>
+                    <div className="mt-1.5 grid gap-2 sm:grid-cols-2">
+                      <div className="min-w-0">
+                        <p className="text-[10px] uppercase tracking-wide text-muted-foreground">
+                          Input
+                        </p>
+                        <pre className="overflow-x-auto font-mono text-xs leading-relaxed">
+                          {c.input || "(empty)"}
+                        </pre>
+                      </div>
+                      <div className="min-w-0">
+                        <p className="text-[10px] uppercase tracking-wide text-muted-foreground">
+                          Output
+                        </p>
+                        <pre className="overflow-x-auto whitespace-pre-wrap font-mono text-xs leading-relaxed">
+                          {c.actual || "(none)"}
+                        </pre>
+                        {c.status !== "accepted" && c.expected !== undefined && (
+                          <p className="mt-1 text-[10px] uppercase tracking-wide text-muted-foreground">
+                            Expected
+                          </p>
+                        )}
+                        {c.status !== "accepted" && c.expected !== undefined && (
+                          <pre className="overflow-x-auto font-mono text-xs leading-relaxed">
+                            {c.expected || "(none)"}
+                          </pre>
+                        )}
+                      </div>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            )}
           </li>
         ))}
       </ul>
@@ -510,8 +600,8 @@ function SubmissionConsole({ submission }: { submission: Submission }) {
       )}
       {submission.verdict === "internal_error" && (
         <p className="text-xs text-muted-foreground">
-          This one is on us, not you. The judge could not run your submission, and it does not
-          count as an attempt.
+          This one is on us, not you. The judge could not run your submission, and it does not count
+          as an attempt.
         </p>
       )}
     </div>

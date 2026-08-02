@@ -23,13 +23,7 @@ const nav = [
   { to: "/leaderboard", label: "Leaderboard" },
 ] as const;
 
-export function AppShell({
-  children,
-  wide = false,
-}: {
-  children: ReactNode;
-  wide?: boolean;
-}) {
+export function AppShell({ children, wide = false }: { children: ReactNode; wide?: boolean }) {
   const { data: user } = useMe();
   const logout = useLogout();
   const navigate = useNavigate();
@@ -41,7 +35,7 @@ export function AppShell({
     try {
       await logout.mutateAsync();
     } finally {
-      navigate({ to: "/", replace: true });
+      navigate({ to: "/", search: { next: undefined }, replace: true });
     }
   };
 
@@ -140,12 +134,7 @@ export function AppShell({
         </div>
       </header>
 
-      <main
-        className={cn(
-          "mx-auto px-4 py-8 sm:px-6",
-          wide ? "max-w-[1600px]" : "max-w-[1400px]",
-        )}
-      >
+      <main className={cn("mx-auto px-4 py-8 sm:px-6", wide ? "max-w-[1600px]" : "max-w-[1400px]")}>
         {children}
       </main>
     </div>

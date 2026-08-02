@@ -26,14 +26,14 @@ export class ApiError extends Error {
   readonly code: string;
   /** Field-level messages from DRF, when the failure was a validation error. */
   readonly fields: Record<string, string[]>;
-  readonly retryAfter?: number;
+  readonly retryAfter: number | undefined;
 
   constructor(
     status: number,
     message: string,
     code = "error",
     fields: Record<string, string[]> = {},
-    retryAfter?: number,
+    retryAfter: number | undefined = undefined,
   ) {
     super(message);
     this.name = "ApiError";
@@ -72,10 +72,11 @@ export async function primeCsrf(force = false): Promise<void> {
 
 interface RequestOptions {
   method?: "GET" | "POST" | "PATCH" | "PUT" | "DELETE";
-  body?: unknown;
-  signal?: AbortSignal;
+  /** Required-with-undefined so exactOptionalPropertyTypes lets us pass either. */
+  body: unknown;
+  signal: AbortSignal | undefined;
   /** Query parameters; undefined and empty values are dropped. */
-  params?: Record<string, string | number | boolean | undefined | null>;
+  params: Record<string, string | number | boolean | undefined | null> | undefined;
 }
 
 function buildUrl(path: string, params?: RequestOptions["params"]): string {
@@ -107,12 +108,11 @@ function parseError(status: number, payload: unknown): ApiError {
   }
 
   const body = payload as Record<string, unknown>;
-  const code = typeof body.error === "string" ? body.error : "error";
-  const retryAfter =
-    typeof body.retry_after === "number" ? body.retry_after : undefined;
+  const code = typeof body["error"] === "string" ? body["error"] : "error";
+  const retryAfter = typeof body["retry_after"] === "number" ? body["retry_after"] : undefined;
 
-  if (typeof body.detail === "string") {
-    return new ApiError(status, body.detail, code, {}, retryAfter);
+  if (typeof body["detail"] === "string") {
+    return new ApiError(status, body["detail"], code, {}, retryAfter);
   }
 
   const fields: Record<string, string[]> = {};
@@ -133,7 +133,10 @@ function parseError(status: number, payload: unknown): ApiError {
   return new ApiError(status, message, code, fields, retryAfter);
 }
 
-export async function request<T>(path: string, options: RequestOptions = {}): Promise<T> {
+export async function request<T>(
+  path: string,
+  options: RequestOptions = { body: undefined, signal: undefined, params: undefined },
+): Promise<T> {
   const method = options.method ?? "GET";
   const unsafe = method !== "GET";
 
@@ -146,13 +149,15 @@ export async function request<T>(path: string, options: RequestOptions = {}): Pr
     if (token) headers["X-CSRFToken"] = token;
   }
 
-  const response = await fetch(buildUrl(path, options.params), {
+  const init: RequestInit = {
     method,
     headers,
     credentials: "same-origin",
-    signal: options.signal,
-    body: options.body === undefined ? undefined : JSON.stringify(options.body),
-  });
+  };
+  if (options.signal) init.signal = options.signal;
+  if (options.body !== undefined) init.body = JSON.stringify(options.body) ?? null;
+
+  const response = await fetch(buildUrl(path, options.params), init);
 
   if (response.status === 204) return undefined as T;
 
@@ -181,10 +186,13 @@ export async function request<T>(path: string, options: RequestOptions = {}): Pr
 
 export const api = {
   get: <T>(path: string, params?: RequestOptions["params"], signal?: AbortSignal) =>
-    request<T>(path, { method: "GET", params, signal }),
-  post: <T>(path: string, body?: unknown) => request<T>(path, { method: "POST", body }),
-  patch: <T>(path: string, body?: unknown) => request<T>(path, { method: "PATCH", body }),
-  delete: <T>(path: string) => request<T>(path, { method: "DELETE" }),
+    request<T>(path, { method: "GET", params, signal, body: undefined }),
+  post: <T>(path: string, body?: unknown) =>
+    request<T>(path, { method: "POST", body, params: undefined, signal: undefined }),
+  patch: <T>(path: string, body?: unknown) =>
+    request<T>(path, { method: "PATCH", body, params: undefined, signal: undefined }),
+  delete: <T>(path: string, params?: RequestOptions["params"]) =>
+    request<T>(path, { method: "DELETE", params, body: undefined, signal: undefined }),
 };
 
 /** Unwrap a paginated envelope for the many places that just want the rows. */

@@ -61,13 +61,15 @@ class ProblemDetailSerializer(ProblemListSerializer):
     problem_version_id = serializers.SerializerMethodField()
     editorial_unlocked = serializers.SerializerMethodField()
     languages = serializers.SerializerMethodField()
+    judge_mode = serializers.SerializerMethodField()
+    starter_code = serializers.SerializerMethodField()
 
     class Meta(ProblemListSerializer.Meta):
         fields = [
             *ProblemListSerializer.Meta.fields,
             "statement", "input_format", "output_format", "constraints", "notes",
             "examples", "time_limit_ms", "memory_limit_mb", "problem_version_id",
-            "editorial_unlocked", "languages",
+            "editorial_unlocked", "languages", "judge_mode", "starter_code",
         ]
 
     def _version(self, obj: Problem):  # noqa: ANN202
@@ -131,3 +133,23 @@ class ProblemDetailSerializer(ProblemListSerializer):
         re-checks. A client that lies about this flag gains nothing.
         """
         return bool(self.context.get("editorial_unlocked", False))
+
+    def get_judge_mode(self, obj: Problem) -> str:
+        v = self._version(obj)
+        return v.judge_mode if v else "io"
+
+    def get_starter_code(self, obj: Problem) -> dict[str, str]:
+        """Per-language starter for signature problems; empty for io problems.
+
+        The starter is the learner's starting buffer -- the function stub they
+        fill in. The driver stays on the server; a learner who never sees it
+        cannot adjust their output formatting to game a checker.
+        """
+        v = self._version(obj)
+        if v is None:
+            return {}
+        return {
+            lang: templates["starter"]
+            for lang, templates in v.signature_templates.items()
+            if isinstance(templates, dict) and "starter" in templates
+        }

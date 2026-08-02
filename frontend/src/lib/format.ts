@@ -8,7 +8,7 @@
  * apart.
  */
 
-import type { Difficulty, ProgressState, Verdict } from "./api/types";
+import type { ContestState, Difficulty, ProgressState, Verdict } from "./api/types";
 
 export const VERDICT_LABELS: Record<Verdict, string> = {
   pending: "Pending",
@@ -51,6 +51,24 @@ export const DIFFICULTY_LABELS: Record<Difficulty, string> = {
   medium: "Medium",
   hard: "Hard",
 };
+
+export const CONTEST_STATE_LABELS: Record<ContestState, string> = {
+  draft: "Draft",
+  published: "Published",
+  running: "Running",
+  frozen: "Frozen",
+  paused: "Paused",
+  ended: "Ended",
+  provisional: "Provisional",
+  final: "Final",
+};
+
+/** Tailwind tone for a contest state chip. Live states are green, paused amber. */
+export function contestStateTone(state: ContestState): "success" | "warning" | "muted" {
+  if (state === "running" || state === "frozen") return "success";
+  if (state === "paused") return "warning";
+  return "muted";
+}
 
 export const PROGRESS_LABELS: Record<ProgressState, string> = {
   not_attempted: "To do",
@@ -122,6 +140,19 @@ export function formatDateTime(iso: string | null | undefined): string {
     hour: "2-digit",
     minute: "2-digit",
   });
+}
+
+/** ISO string → value for an <input type="datetime-local">, in local time. */
+export function toLocalInput(iso: string): string {
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return "";
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
+}
+
+/** <input type="datetime-local"> value → ISO string. */
+export function fromLocalInput(value: string): string {
+  return new Date(value).toISOString();
 }
 
 /**

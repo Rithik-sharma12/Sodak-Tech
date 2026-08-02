@@ -14,7 +14,7 @@ import { defineConfig } from "@lovable.dev/vite-tanstack-config";
 // Production serves both behind one origin too (see deploy/nginx.conf), so the
 // browser sees the same URLs in both environments and nothing has to be
 // reconfigured between them.
-const apiTarget = process.env.VITE_API_TARGET ?? "http://localhost:8000";
+const apiTarget = process.env["VITE_API_TARGET"] ?? "http://localhost:8000";
 
 const proxy = {
   target: apiTarget,
@@ -22,7 +22,17 @@ const proxy = {
   secure: false,
 };
 
+// @lovable.dev/vite-tanstack-config defaults the build to the cloudflare-module
+// nitro preset, which is what the Lovable host deploys. For a self-hosted
+// node/nginx deployment the same codebase builds with `NITRO_PRESET=node-server`
+// (see deploy/nginx.conf and docs/DEPLOYMENT.md). Leaving the option unset keeps
+// the Lovable default untouched.
+const nitroPreset = process.env["NITRO_PRESET"];
+
 export default defineConfig({
+  // Spread so the key is absent (not `undefined`) when unset: the Lovable
+  // options type forbids passing the property explicitly as undefined.
+  ...(nitroPreset ? { nitro: { preset: nitroPreset } } : {}),
   tanstackStart: {
     // Redirect TanStack Start's bundled server entry to src/server.ts (our SSR error wrapper).
     // nitro/vite builds from this

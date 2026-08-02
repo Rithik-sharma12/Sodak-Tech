@@ -1,0 +1,32 @@
+# Heroku/foreman-style process definitions.
+#
+# This is the container-agnostic twin of the Dockerfile CMD. The Dockerfile is
+# the source of truth for the image; this file exists for platforms that drive
+# processes from a Procfile instead. Keep the two in lockstep.
+#
+# The web process is the API only. The frontend is a separate Node process
+# built with `NITRO_PRESET=node-server` and run with `node .output/server/index.mjs`
+# (see docs/DEPLOYMENT.md and deploy/nginx.conf).
+#
+# Design doc §4.3: gunicorn sits behind a transaction-mode pooler (PgBouncer),
+# not directly on Postgres. Point DATABASE_URL at the pooler, never at the
+# database.
+
+web: gunicorn config.wsgi:application \
+     --bind 0.0.0.0:$PORT \
+     --workers 4 \
+     --worker-class uvicorn.workers.UvicornWorker \
+     --timeout 60 \
+     --graceful-timeout 30 \
+     --max-requests 2000 \
+     --max-requests-jitter 200 \
+     --access-logfile - \
+     --error-logfile -
+
+# Background judging. NOT a sandbox: this worker holds credentials and talks
+# to the database, which a real judge worker must never do (design doc §3.1).
+# Do not add the worker to a pool with network access to the database.
+worker: celery -A config worker \
+     --loglevel=INFO \
+     --concurrency=2 \
+     --queues=judge.practice,judge.contest

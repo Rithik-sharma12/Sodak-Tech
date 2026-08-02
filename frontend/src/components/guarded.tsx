@@ -21,7 +21,7 @@ export function GuardedPage({
   wide?: boolean;
   requireRole?: "admin" | "author";
 }) {
-  const { isReady, isLoading } = useRequireAuth({ requireRole });
+  const { isReady, isLoading } = useRequireAuth(requireRole ? { requireRole } : {});
 
   if (!isReady) {
     return (

@@ -41,7 +41,7 @@ from django.conf import settings
 from django.db import transaction
 from django.utils import timezone
 
-from apps.problems.models import TestGroup
+from apps.problems.models import JudgingMode, TestGroup
 from apps.submissions.models import Submission, SubmissionKind, SubmissionResult, Verdict
 from apps.submissions.scoring import compute_score, overall_verdict
 
@@ -80,6 +80,47 @@ def _normalise(text: str) -> str:
     return "\n".join(line.rstrip() for line in lines).strip()
 
 
+# Marker where the submitted source is injected into a signature-mode driver.
+USER_CODE_MARKER = "%%USER_CODE%%"
+
+
+class MisconfiguredProblem(RuntimeError):
+    """The version advertises a judge mode its data cannot serve.
+
+    Treated as an internal error on the submission: it is the platform's fault,
+    never the learner's, and must not count as an attempt.
+    """
+
+
+def _effective_source(submission: Submission) -> str:
+    """The exact program that runs on the judge host.
+
+    `io` submissions are the learner's program, unchanged. `signature`
+    submissions are the learner's function injected into the version's
+    setter-authored driver, so the test-set I/O contract stays identical and
+    only the author-facing contract changes.
+    """
+    version = submission.problem_version
+    if version.judge_mode != JudgingMode.SIGNATURE:
+        return submission.source_code
+
+    templates = version.signature_templates.get(submission.language)
+    if not templates or "driver" not in templates:
+        raise MisconfiguredProblem(
+            f"Problem {version.problem.slug} v{version.version_number} is signature-mode "
+            f"but has no driver template for {submission.language!r}."
+        )
+    merged = templates["driver"].replace(USER_CODE_MARKER, submission.source_code)
+    if USER_CODE_MARKER in merged:
+        # Guarded so a driver that lost its marker fails loudly instead of
+        # silently judging the harness alone.
+        raise MisconfiguredProblem(
+            f"Driver template for {version.problem.slug} {submission.language!r} "
+            f"has no {USER_CODE_MARKER!r} marker."
+        )
+    return merged
+
+
 def _prepare_runtime(source: str, language: str, workspace: Path) -> tuple[list[str] | None, str]:
     """Prepare executable runtime for a language.
 
@@ -91,6 +132,16 @@ def _prepare_runtime(source: str, language: str, workspace: Path) -> tuple[list[
     if canonical == "python":
         script = workspace / "solution.py"
         script.write_text(source, encoding="utf-8")
+        # A Python syntax error is a compile error, not a runtime error. A
+        # missing closing paren surfacing as RUNTIME_ERROR teaches the wrong
+        # thing. Compiled languages get this from the compiler; Python gets it
+        # from a cheap in-process parse before the subprocess starts.
+        try:
+            compile(source, str(script), "exec")
+        except SyntaxError as exc:
+            line = exc.lineno or "?"
+            detail = exc.text or ""
+            return None, f'  File "solution.py", line {line}\n{detail}\nSyntaxError: {exc.msg}'
         return [sys.executable, "-I", "-S", str(script)], ""
 
     if canonical == "java":
@@ -211,21 +262,28 @@ def judge_submission(submission: Submission) -> Submission:
 
     with tempfile.TemporaryDirectory() as tmpdir:
         workspace = Path(tmpdir)
-        run_cmd, compile_error = _prepare_runtime(
-            submission.source_code,
-            submission.language,
-            workspace,
-        )
+
+        try:
+            source = _effective_source(submission)
+        except MisconfiguredProblem as exc:
+            logger.error("Misconfigured problem: %s", exc)
+            compile_output = str(exc)[:4000]
+            run_cmd = None
+            setup_verdict = Verdict.INTERNAL_ERROR
+        else:
+            run_cmd, compile_error = _prepare_runtime(source, submission.language, workspace)
+            setup_verdict = Verdict.COMPILE_ERROR
 
         if run_cmd is None:
-            compile_output = compile_error[:4000]
+            if not compile_output:
+                compile_output = compile_error[:4000]
             for group in groups:
                 cases = list(group.test_cases.all())
                 results.append(
                     SubmissionResult(
                         submission=submission,
                         test_group=group,
-                        verdict=Verdict.COMPILE_ERROR,
+                        verdict=setup_verdict,
                         passed=False,
                         cases_total=len(cases),
                         cases_passed=0,

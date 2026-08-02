@@ -34,6 +34,8 @@ urlpatterns = [
 
     path("contests/", views.AdminContestListView.as_view(), name="contest-list"),
     path("contests/create/", views.create_contest, name="contest-create"),
+    path("contests/<slug:slug>/", views.contest_detail, name="contest-detail"),
+    path("contests/<slug:slug>/problems/", views.contest_problems, name="contest-problems"),
     path("contests/<slug:slug>/transition/", views.transition_contest, name="contest-transition"),
 
     path("audit/", views.AuditLogListView.as_view(), name="audit-list"),

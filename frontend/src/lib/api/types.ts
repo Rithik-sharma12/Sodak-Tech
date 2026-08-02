@@ -11,12 +11,7 @@
  * that branch.
  */
 
-export type Role =
-  | "user"
-  | "problem_setter"
-  | "contest_manager"
-  | "admin"
-  | "super_admin";
+export type Role = "user" | "problem_setter" | "contest_manager" | "admin" | "super_admin";
 
 export const PRIVILEGED_ROLES: Role[] = [
   "problem_setter",
@@ -66,13 +61,9 @@ export function isTerminal(verdict: Verdict): boolean {
 }
 
 export type ContestState =
-  | "draft"
-  | "published"
-  | "running"
-  | "frozen"
-  | "ended"
-  | "finalised"
-  | "cancelled";
+  "draft" | "published" | "running" | "frozen" | "paused" | "ended" | "provisional" | "final";
+
+export type ScoringMode = "partial" | "icpc";
 
 export type SubmissionKind = "run" | "submit";
 
@@ -132,6 +123,14 @@ export interface ProblemDetail extends ProblemSummary {
   problem_version_id: string;
   editorial_unlocked: boolean;
   languages: LanguageOption[];
+  /**
+   * "io" = the submission is a full stdin/stdout program.
+   * "signature" = the submission is just the solution function; the judge
+   * merges it into a setter-authored driver (LeetCode-style).
+   */
+  judge_mode: "io" | "signature";
+  /** Per-language starter buffer for signature problems; empty for io. */
+  starter_code: Record<string, string>;
 }
 
 export interface CaseResult {
@@ -279,6 +278,8 @@ export interface AdminProblemVersion {
   memory_limit_mb: number;
   comparison_mode: "exact" | "float" | "checker";
   float_tolerance: number | null;
+  judge_mode: "io" | "signature";
+  signature_templates: Record<string, { starter: string; driver: string }>;
   published_at: string | null;
   is_published: boolean;
   change_note: string;
@@ -320,16 +321,59 @@ export interface AdminContest {
   title: string;
   description: string;
   state: ContestState;
-  scoring_mode: string;
+  scoring_mode: ScoringMode;
   starts_at: string;
   ends_at: string;
   freeze_at: string | null;
+  grace_period_seconds: number;
+  penalty_minutes_per_wrong: number;
   is_rated: boolean;
   is_public: boolean;
+  rules_text: string;
+  tiebreak_rule: string;
   owner_username: string;
   problem_count: number;
   registration_count: number;
+  /** Optimistic concurrency token; echo it back on update (§7.3). */
+  row_version: number;
   created_at: string;
+}
+
+/** Contest state changes go through transitions, never field edits (§3.7). */
+export interface ContestWrite {
+  slug?: string;
+  title?: string;
+  description?: string;
+  scoring_mode?: ScoringMode;
+  starts_at?: string;
+  ends_at?: string;
+  freeze_at?: string | null;
+  grace_period_seconds?: number;
+  penalty_minutes_per_wrong?: number;
+  is_rated?: boolean;
+  is_public?: boolean;
+  rules_text?: string;
+  tiebreak_rule?: string;
+  expected_row_version?: number;
+}
+
+export interface AdminContestProblem {
+  id: string;
+  problem_slug: string;
+  problem_title: string;
+  problem_difficulty: Difficulty;
+  version_number: number;
+  label: string;
+  order: number;
+  points: number;
+}
+
+export interface AdminContestDetail extends AdminContest {
+  problems: AdminContestProblem[];
+  /** Next states reachable from the current one; empty in a terminal state. */
+  allowed_transitions: ContestState[];
+  /** State a paused contest returns to when resumed. */
+  resume_state: string;
 }
 
 export interface AuditEntry {

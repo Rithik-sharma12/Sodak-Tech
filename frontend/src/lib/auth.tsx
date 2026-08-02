@@ -28,9 +28,7 @@ export function isAdmin(user: User | null | undefined): boolean {
 export function canAuthorProblems(user: User | null | undefined): boolean {
   return Boolean(
     user &&
-      (user.role === "problem_setter" ||
-        user.role === "admin" ||
-        user.role === "super_admin"),
+    (user.role === "problem_setter" || user.role === "admin" || user.role === "super_admin"),
   );
 }
 
@@ -69,14 +67,13 @@ export function useRequireAuth(options: { requireRole?: "admin" | "author" } = {
   const navigate = useNavigate();
   const pathname = useRouterState({ select: (s) => s.location.pathname });
 
-  const allowed =
-    !user
-      ? false
-      : options.requireRole === "admin"
-        ? isAdmin(user)
-        : options.requireRole === "author"
-          ? canAuthorProblems(user)
-          : true;
+  const allowed = !user
+    ? false
+    : options.requireRole === "admin"
+      ? isAdmin(user)
+      : options.requireRole === "author"
+        ? canAuthorProblems(user)
+        : true;
 
   useEffect(() => {
     if (isLoading) return;
@@ -84,7 +81,7 @@ export function useRequireAuth(options: { requireRole?: "admin" | "author" } = {
     if (!user) {
       navigate({
         to: "/",
-        search: pathname && pathname !== "/" ? { next: pathname } : undefined,
+        search: pathname && pathname !== "/" ? { next: pathname } : { next: undefined },
         replace: true,
       });
       return;

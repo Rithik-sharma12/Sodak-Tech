@@ -11,7 +11,7 @@ from rest_framework import serializers
 
 from apps.accounts.models import Role, User
 from apps.audit.models import AuditLog
-from apps.contests.models import Contest
+from apps.contests.models import Contest, ContestProblem
 from apps.problems.models import Problem, ProblemVersion, Tag, TestCase, TestGroup
 
 
@@ -70,7 +70,8 @@ class AdminProblemVersionSerializer(serializers.ModelSerializer):
         model = ProblemVersion
         fields = [
             "id", "version_number", "time_limit_ms", "memory_limit_mb",
-            "comparison_mode", "float_tolerance", "published_at", "is_published",
+            "comparison_mode", "float_tolerance", "judge_mode",
+            "signature_templates", "published_at", "is_published",
             "change_note", "created_at", "test_groups",
         ]
 
@@ -109,6 +110,9 @@ class ProblemWriteSerializer(serializers.ModelSerializer):
     what guarantees it.
     """
 
+    # Blank or absent on create: the view derives one from the title so the
+    # form can promise "blank = derived from title" (§7.3 never collides).
+    slug = serializers.SlugField(max_length=64, required=False, allow_blank=True)
     tag_slugs = serializers.ListField(
         child=serializers.SlugField(), required=False, write_only=True
     )
@@ -146,9 +150,20 @@ class VersionWriteSerializer(serializers.Serializer):
         choices=["exact", "float", "checker"], default="exact"
     )
     float_tolerance = serializers.FloatField(required=False, allow_null=True)
+    judge_mode = serializers.ChoiceField(choices=["io", "signature"], default="io")
+    signature_templates = serializers.JSONField(required=False, default=dict)
     change_note = serializers.CharField(required=False, allow_blank=True, default="")
     publish = serializers.BooleanField(default=False)
     test_groups = TestGroupWriteSerializer(many=True)
+
+    def validate(self, attrs: dict) -> dict:
+        # A signature-mode version is unusable without per-language harnesses:
+        # there is nothing to merge the learner's function into.
+        if attrs.get("judge_mode") == "signature" and not attrs.get("signature_templates"):
+            raise serializers.ValidationError(
+                "signature_templates are required when judge_mode is 'signature'."
+            )
+        return attrs
 
     def validate_test_groups(self, value):
         if not value:
@@ -169,15 +184,84 @@ class AdminContestSerializer(serializers.ModelSerializer):
     owner_username = serializers.CharField(source="owner.username", read_only=True)
     problem_count = serializers.IntegerField(read_only=True, default=0)
     registration_count = serializers.IntegerField(read_only=True, default=0)
+    # Blank or absent on create: the view derives one from the title.
+    slug = serializers.SlugField(max_length=128, required=False, allow_blank=True)
+    # §7.3: optimistic concurrency — a conflicting edit is a 409, never a
+    # silent overwrite. The write-only counterpart to `expected_row_version`.
+    row_version = serializers.IntegerField(read_only=True)
+    expected_row_version = serializers.IntegerField(required=False, write_only=True)
 
     class Meta:
         model = Contest
         fields = [
             "id", "slug", "title", "description", "state", "scoring_mode",
-            "starts_at", "ends_at", "freeze_at", "is_rated", "is_public",
-            "owner_username", "problem_count", "registration_count", "created_at",
+            "starts_at", "ends_at", "freeze_at", "grace_period_seconds",
+            "penalty_minutes_per_wrong", "is_rated", "is_public",
+            "rules_text", "tiebreak_rule",
+            "owner_username", "problem_count", "registration_count",
+            "row_version", "expected_row_version", "created_at",
         ]
         read_only_fields = ["id", "state", "created_at"]
+
+    def validate(self, attrs: dict) -> dict:
+        """Timing invariants, using committed values as the baseline on a
+        partial update so un-sent fields are not mistaken for edits."""
+        instance = self.instance
+        starts_at = attrs.get("starts_at", getattr(instance, "starts_at", None))
+        ends_at = attrs.get("ends_at", getattr(instance, "ends_at", None))
+        if starts_at and ends_at and ends_at <= starts_at:
+            raise serializers.ValidationError("ends_at must be after starts_at.")
+        freeze_at = attrs.get("freeze_at", getattr(instance, "freeze_at", None))
+        if freeze_at:
+            if starts_at and freeze_at <= starts_at:
+                raise serializers.ValidationError("freeze_at must be after starts_at.")
+            if ends_at and freeze_at >= ends_at:
+                raise serializers.ValidationError("freeze_at must be before ends_at.")
+        return attrs
+
+
+class AdminContestProblemSerializer(serializers.ModelSerializer):
+    """One problem pinned into a contest, with the version it is pinned to."""
+
+    problem_slug = serializers.CharField(source="problem.slug", read_only=True)
+    problem_title = serializers.CharField(source="problem.title", read_only=True)
+    problem_difficulty = serializers.CharField(source="problem.difficulty", read_only=True)
+    version_number = serializers.IntegerField(
+        source="problem_version.version_number", read_only=True
+    )
+
+    class Meta:
+        model = ContestProblem
+        fields = [
+            "id", "problem_slug", "problem_title", "problem_difficulty",
+            "version_number", "label", "order", "points",
+        ]
+
+
+class ContestProblemWriteSerializer(serializers.Serializer):
+    problem_slug = serializers.SlugField()
+    version_number = serializers.IntegerField(required=False, allow_null=True)
+    label = serializers.CharField(max_length=8)
+    order = serializers.IntegerField(min_value=0, default=0)
+    points = serializers.IntegerField(min_value=1, default=100)
+
+
+class ContestDetailSerializer(AdminContestSerializer):
+    problems = AdminContestProblemSerializer(
+        many=True, read_only=True, source="contest_problems"
+    )
+    allowed_transitions = serializers.SerializerMethodField()
+    resume_state = serializers.CharField(read_only=True)
+
+    class Meta(AdminContestSerializer.Meta):
+        fields = AdminContestSerializer.Meta.fields + [
+            "problems", "allowed_transitions", "resume_state",
+        ]
+
+    def get_allowed_transitions(self, obj: Contest) -> list[str]:
+        from apps.contests.models import ALLOWED_TRANSITIONS
+
+        return sorted(ALLOWED_TRANSITIONS.get(obj.state, set()))
 
 
 class ContestTransitionSerializer(serializers.Serializer):

@@ -56,6 +56,9 @@ class AuditAction(models.TextChoices):
 
     # Contests
     CONTEST_CREATED = "contest.created", "Contest created"
+    CONTEST_UPDATED = "contest.updated", "Contest updated"
+    CONTEST_PROBLEM_ADDED = "contest.problem_added", "Problem attached to contest"
+    CONTEST_PROBLEM_REMOVED = "contest.problem_removed", "Problem detached from contest"
     CONTEST_STATE_CHANGED = "contest.state_changed", "Contest state changed"
     CONTEST_FINALIZED = "contest.finalized", "Contest finalized"
     CONTEST_REJUDGE_AFTER_FINAL = "contest.rejudge_after_final", "Rejudge after finalization"

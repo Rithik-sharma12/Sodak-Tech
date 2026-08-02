@@ -12,7 +12,7 @@ import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/")({
   validateSearch: (search: Record<string, unknown>) => ({
-    next: typeof search.next === "string" ? search.next : undefined,
+    next: typeof search["next"] === "string" ? search["next"] : undefined,
   }),
   head: () => ({
     meta: [
@@ -74,7 +74,7 @@ function LoginPage() {
 
   // `next` carries the page the guard bounced them from, so a deep link to a
   // problem survives signing in.
-  const destination = typeof search.next === "string" ? search.next : "/dashboard";
+  const destination = typeof search["next"] === "string" ? search["next"] : "/dashboard";
 
   useEffect(() => {
     if (user) navigate({ to: destination, replace: true });

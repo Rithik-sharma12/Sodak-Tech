@@ -15,7 +15,6 @@ from __future__ import annotations
 from datetime import timedelta
 
 from django.contrib.auth import get_user_model
-from django.db import transaction
 from django.db.models import Count, Q
 from django.utils import timezone
 from django.utils.text import slugify
@@ -33,6 +32,8 @@ from apps.administration.serializers import (
     AdminTagSerializer,
     AdminUserSerializer,
     AuditLogSerializer,
+    ContestDetailSerializer,
+    ContestProblemWriteSerializer,
     ContestTransitionSerializer,
     ProblemWriteSerializer,
     RoleChangeSerializer,
@@ -41,7 +42,7 @@ from apps.administration.serializers import (
 from apps.audit.models import AuditAction, AuditLog
 from apps.audit.services import audited
 from apps.common.models import StaleWriteError
-from apps.contests.models import Contest, InvalidTransition
+from apps.contests.models import Contest, ContestProblem, ContestState, InvalidTransition
 from apps.problems.models import Problem, ProblemVersion, Tag, TestCase, TestGroup
 from apps.submissions.models import Submission, Verdict
 
@@ -298,6 +299,10 @@ def admin_problem_detail(request, slug):
     data = serializer.validated_data
     tag_slugs = data.pop("tag_slugs", None)
     expected = data.pop("expected_row_version", None)
+    # Blank slug means "keep the current one" — the model is immutable once a
+    # problem is live, so never let an update erase it.
+    if not data.get("slug"):
+        data.pop("slug", None)
 
     try:
         with audited(
@@ -335,9 +340,18 @@ def create_problem(request):
     tag_slugs = data.pop("tag_slugs", [])
     data.pop("expected_row_version", None)
 
-    if not data.get("slug"):
-        data["slug"] = slugify(data["title"])[:128]
-    if Problem.all_objects.filter(slug=data["slug"]).exists():
+    slug = data.get("slug")
+    if not slug:
+        # §7.3 never collides: append a numeric suffix rather than failing a
+        # create that the UI promised would succeed with a blank slug field.
+        base = (slugify(data["title"]) or "problem")[:64]
+        slug = base
+        n = 2
+        while Problem.all_objects.filter(slug=slug).exists():
+            slug = f"{base[: 64 - len(str(n)) - 1]}-{n}"
+            n += 1
+        data["slug"] = slug
+    elif Problem.all_objects.filter(slug=slug).exists():
         return Response(
             {"slug": ["A problem with this slug already exists."]},
             status=status.HTTP_400_BAD_REQUEST,
@@ -532,13 +546,31 @@ class AdminContestListView(ListAPIView):
 def create_contest(request):
     serializer = AdminContestSerializer(data=request.data)
     serializer.is_valid(raise_exception=True)
+    data = serializer.validated_data
+
+    slug = data.get("slug")
+    if not slug:
+        # Same promise as problems: a blank slug field derives one from the
+        # title, made unique so two same-titled contests can coexist.
+        base = (slugify(data["title"]) or "contest")[:128]
+        slug = base
+        n = 2
+        while Contest.all_objects.filter(slug=slug).exists():
+            slug = f"{base[: 128 - len(str(n)) - 1]}-{n}"
+            n += 1
+        data["slug"] = slug
+    elif Contest.all_objects.filter(slug=slug).exists():
+        return Response(
+            {"slug": ["A contest with this slug already exists."]},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
 
     with audited(
         action=AuditAction.CONTEST_CREATED,
         actor=request.user,
         target_type="contest",
         target_id="",
-        summary=f"Created contest {serializer.validated_data.get('slug')}",
+        summary=f"Created contest {data.get('slug')}",
         request=request,
     ) as meta:
         contest = serializer.save(owner=request.user)
@@ -588,6 +620,181 @@ def transition_contest(request, slug):
         return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
 
     return Response(AdminContestSerializer(contest).data)
+
+
+@api_view(["GET", "PATCH"])
+@permission_classes([IsAdmin])
+def contest_detail(request, slug):
+    """Read a contest or edit its scheduling and metadata.
+
+    Deliberately not the state field: §3.7 requires lifecycle changes to go
+    through `transition_to`, and `state` is read-only in the serializer. Editing
+    `starts_at`/`ends_at` is the documented way to extend a contest after a
+    bad-test-case incident (§7.2), not a loophole for skipping transitions.
+    """
+    contest = (
+        Contest.objects.filter(slug=slug)
+        .select_related("owner")
+        .prefetch_related(
+            "contest_problems__problem", "contest_problems__problem_version"
+        )
+        .first()
+    )
+    if contest is None:
+        return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
+
+    if request.method == "GET":
+        return Response(ContestDetailSerializer(contest).data)
+
+    serializer = AdminContestSerializer(contest, data=request.data, partial=True)
+    serializer.is_valid(raise_exception=True)
+    data = serializer.validated_data
+    expected = data.pop("expected_row_version", None)
+    # Same immutability guard as problems: a blank slug never clears the URL
+    # that learners may already have bookmarked.
+    if not data.get("slug"):
+        data.pop("slug", None)
+
+    try:
+        with audited(
+            action=AuditAction.CONTEST_UPDATED,
+            actor=request.user,
+            target_type="contest",
+            target_id=str(contest.pk),
+            summary=f"Updated {contest.slug}",
+            request=request,
+        ) as meta:
+            if expected is not None:
+                for field, value in data.items():
+                    setattr(contest, field, value)
+                contest.save_if_current(expected, list(data.keys()))
+            else:
+                for field, value in data.items():
+                    setattr(contest, field, value)
+                contest.save(
+                    update_fields=list(data.keys()) + ["updated_at"]
+                )
+            meta["fields"] = list(data.keys())
+    except StaleWriteError as exc:
+        return Response({"detail": str(exc)}, status=status.HTTP_409_CONFLICT)
+
+    contest.refresh_from_db()
+    return Response(
+        ContestDetailSerializer(
+            Contest.objects.select_related("owner")
+            .prefetch_related("contest_problems__problem", "contest_problems__problem_version")
+            .get(pk=contest.pk)
+        ).data
+    )
+
+
+@api_view(["POST", "DELETE"])
+@permission_classes([IsAdmin])
+def contest_problems(request, slug):
+    """Attach or detach a problem to/from a contest.
+
+    §8.5: contest problems are unreadable until the start, and the set must be
+    fixed before then — "not preloaded to the client, not served from guessable
+    paths". The mapping row is pure structure (no history of its own), so
+    removing it is a hard delete; submissions keep resolving through their own
+    problem/version references.
+    """
+    contest = Contest.objects.filter(slug=slug).first()
+    if contest is None:
+        return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
+
+    if contest.state not in {ContestState.DRAFT, ContestState.PUBLISHED}:
+        return Response(
+            {"detail": "The problem set is fixed once a contest leaves 'published'."},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    if request.method == "DELETE":
+        problem_slug = request.query_params.get("problem")
+        cp = ContestProblem.objects.filter(
+            contest=contest, problem__slug=problem_slug
+        ).first()
+        if cp is None:
+            return Response(
+                {"detail": "That problem is not attached."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+        with audited(
+            action=AuditAction.CONTEST_PROBLEM_REMOVED,
+            actor=request.user,
+            target_type="contest",
+            target_id=str(contest.pk),
+            summary=f"Detached {problem_slug} from {contest.slug}",
+            request=request,
+        ):
+            cp.delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+    serializer = ContestProblemWriteSerializer(data=request.data)
+    serializer.is_valid(raise_exception=True)
+    data = serializer.validated_data
+
+    problem = Problem.objects.filter(slug=data["problem_slug"]).first()
+    if problem is None:
+        return Response({"detail": "No such problem."}, status=status.HTTP_404_NOT_FOUND)
+    if problem.current_version_id is None:
+        return Response(
+            {"detail": "The problem has no published version to pin."},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    # §7.2: participants must know exactly what they are solving, so the
+    # version is pinned here, not resolved lazily at submit time.
+    version = problem.current_version
+    if data.get("version_number") is not None:
+        version = ProblemVersion.objects.filter(
+            problem=problem, version_number=data["version_number"]
+        ).first()
+        if version is None or version.published_at is None:
+            return Response(
+                {"detail": "No published version with that number."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+    if ContestProblem.objects.filter(contest=contest, problem=problem).exists():
+        return Response(
+            {"detail": "That problem is already attached."},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+    if ContestProblem.objects.filter(contest=contest, label=data["label"]).exists():
+        return Response(
+            {"detail": f"Label '{data['label']}' is already used in this contest."},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    with audited(
+        action=AuditAction.CONTEST_PROBLEM_ADDED,
+        actor=request.user,
+        target_type="contest",
+        target_id=str(contest.pk),
+        summary=(
+            f"Attached {problem.slug} v{version.version_number} "
+            f"as {data['label']} to {contest.slug}"
+        ),
+        request=request,
+    ):
+        ContestProblem.objects.create(
+            contest=contest,
+            problem=problem,
+            problem_version=version,
+            label=data["label"],
+            order=data["order"],
+            points=data["points"],
+        )
+
+    return Response(
+        ContestDetailSerializer(
+            Contest.objects.select_related("owner")
+            .prefetch_related("contest_problems__problem", "contest_problems__problem_version")
+            .get(pk=contest.pk)
+        ).data,
+        status=status.HTTP_201_CREATED,
+    )
 
 
 # ---------------------------------------------------------------------------

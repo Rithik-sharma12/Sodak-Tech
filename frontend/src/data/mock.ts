@@ -1,4 +1,4 @@
-export type Difficulty = "Easy" | "Medium" | "Hard";
+export type Difficulty = "easy" | "medium" | "hard";
 export type ProblemStatus = "solved" | "attempted" | "todo";
 
 export type Problem = {
@@ -19,7 +19,7 @@ export const problems: Problem[] = [
     slug: "1",
     title: "Two Sum",
     tags: ["Arrays", "Hashing"],
-    difficulty: "Easy",
+    difficulty: "easy",
     acceptance: "49.8%",
     solvedBy: "12.4M",
     status: "solved",
@@ -30,7 +30,7 @@ export const problems: Problem[] = [
     slug: "3",
     title: "Longest Substring Without Repeating Characters",
     tags: ["Hash Table", "String", "Sliding Window"],
-    difficulty: "Medium",
+    difficulty: "medium",
     acceptance: "33.8%",
     solvedBy: "5.1M",
     status: "attempted",
@@ -41,7 +41,7 @@ export const problems: Problem[] = [
     slug: "4",
     title: "Median of Two Sorted Arrays",
     tags: ["Arrays", "Binary Search", "Divide and Conquer"],
-    difficulty: "Hard",
+    difficulty: "hard",
     acceptance: "36.1%",
     solvedBy: "2.1M",
     status: "todo",
@@ -52,7 +52,7 @@ export const problems: Problem[] = [
     slug: "5",
     title: "Longest Palindromic Substring",
     tags: ["String", "Dynamic Programming"],
-    difficulty: "Medium",
+    difficulty: "medium",
     acceptance: "32.4%",
     solvedBy: "2.7M",
     status: "todo",
@@ -63,7 +63,7 @@ export const problems: Problem[] = [
     slug: "6",
     title: "Course Schedule II",
     tags: ["Graph", "Topological Sort"],
-    difficulty: "Medium",
+    difficulty: "medium",
     acceptance: "48.0%",
     solvedBy: "800K",
     status: "todo",
@@ -74,7 +74,7 @@ export const problems: Problem[] = [
     slug: "7",
     title: "Network Delay Time",
     tags: ["Graph", "Shortest Path"],
-    difficulty: "Medium",
+    difficulty: "medium",
     acceptance: "52.1%",
     solvedBy: "640K",
     status: "todo",
@@ -85,7 +85,7 @@ export const problems: Problem[] = [
     slug: "8",
     title: "Coin Change",
     tags: ["Dynamic Programming"],
-    difficulty: "Medium",
+    difficulty: "medium",
     acceptance: "42.3%",
     solvedBy: "1.2M",
     status: "todo",
@@ -96,7 +96,7 @@ export const problems: Problem[] = [
     slug: "9",
     title: "Valid Parentheses",
     tags: ["Stack", "String"],
-    difficulty: "Easy",
+    difficulty: "easy",
     acceptance: "40.7%",
     solvedBy: "4.3M",
     status: "solved",
@@ -107,7 +107,7 @@ export const problems: Problem[] = [
     slug: "10",
     title: "Merge Intervals",
     tags: ["Arrays", "Sorting"],
-    difficulty: "Medium",
+    difficulty: "medium",
     acceptance: "46.9%",
     solvedBy: "1.9M",
     status: "attempted",
@@ -118,7 +118,7 @@ export const problems: Problem[] = [
     slug: "11",
     title: "Word Ladder",
     tags: ["Graph", "BFS"],
-    difficulty: "Hard",
+    difficulty: "hard",
     acceptance: "38.2%",
     solvedBy: "520K",
     status: "todo",
@@ -129,7 +129,7 @@ export const problems: Problem[] = [
     slug: "12",
     title: "LRU Cache",
     tags: ["Design", "Hashing", "Linked List"],
-    difficulty: "Medium",
+    difficulty: "medium",
     acceptance: "41.2%",
     solvedBy: "1.5M",
     status: "todo",
@@ -140,7 +140,7 @@ export const problems: Problem[] = [
     slug: "13",
     title: "Binary Tree Maximum Path Sum",
     tags: ["Trees", "Recursion"],
-    difficulty: "Hard",
+    difficulty: "hard",
     acceptance: "39.4%",
     solvedBy: "780K",
     status: "todo",
@@ -158,11 +158,7 @@ export const topicFilters = [
   "Sorting",
 ];
 
-export type Verdict =
-  | "Accepted"
-  | "Wrong Answer"
-  | "Time Limit"
-  | "Runtime Error";
+export type Verdict = "Accepted" | "Wrong Answer" | "Time Limit" | "Runtime Error";
 
 export const recentSubmissions: {
   problem: string;
@@ -214,9 +210,24 @@ export const topicMastery = [
 ];
 
 export const recommended = [
-  { title: "Course Schedule II", difficulty: "Medium" as Difficulty, meta: "Graphs • 48% Acc", id: "6" },
-  { title: "Network Delay Time", difficulty: "Medium" as Difficulty, meta: "Graphs • 52% Acc", id: "7" },
-  { title: "Coin Change", difficulty: "Medium" as Difficulty, meta: "Dynamic Prog. • 42% Acc", id: "8" },
+  {
+    title: "Course Schedule II",
+    difficulty: "medium" as Difficulty,
+    meta: "Graphs • 48% Acc",
+    id: "6",
+  },
+  {
+    title: "Network Delay Time",
+    difficulty: "medium" as Difficulty,
+    meta: "Graphs • 52% Acc",
+    id: "7",
+  },
+  {
+    title: "Coin Change",
+    difficulty: "medium" as Difficulty,
+    meta: "Dynamic Prog. • 42% Acc",
+    id: "8",
+  },
 ];
 
 export const podium = [
@@ -244,11 +255,51 @@ export const podium = [
 ];
 
 export const leaderboardRows = [
-  { rank: 4, move: "up", name: "David Kim", handle: "@dkim99", solved: 982, streak: 42, points: 12100 },
-  { rank: 5, move: "flat", name: "Elena Rostova", handle: "@elena_r", solved: 945, streak: 12, points: 11850 },
-  { rank: 6, move: "up", name: "Marcus Webb", handle: "@mwebb", solved: 901, streak: 7, points: 11020 },
-  { rank: 7, move: "down", name: "Yuki Tanaka", handle: "@yuki_t", solved: 878, streak: 19, points: 10740 },
-  { rank: 8, move: "flat", name: "Omar Haddad", handle: "@omarh", solved: 830, streak: 3, points: 10310 },
+  {
+    rank: 4,
+    move: "up",
+    name: "David Kim",
+    handle: "@dkim99",
+    solved: 982,
+    streak: 42,
+    points: 12100,
+  },
+  {
+    rank: 5,
+    move: "flat",
+    name: "Elena Rostova",
+    handle: "@elena_r",
+    solved: 945,
+    streak: 12,
+    points: 11850,
+  },
+  {
+    rank: 6,
+    move: "up",
+    name: "Marcus Webb",
+    handle: "@mwebb",
+    solved: 901,
+    streak: 7,
+    points: 11020,
+  },
+  {
+    rank: 7,
+    move: "down",
+    name: "Yuki Tanaka",
+    handle: "@yuki_t",
+    solved: 878,
+    streak: 19,
+    points: 10740,
+  },
+  {
+    rank: 8,
+    move: "flat",
+    name: "Omar Haddad",
+    handle: "@omarh",
+    solved: 830,
+    streak: 3,
+    points: 10310,
+  },
 ] as const;
 
 export const currentUserRow = {
@@ -300,10 +351,38 @@ export const pastContests = [
 ];
 
 export const contestProblems = [
-  { label: "A", title: "Two Sum", difficulty: "Easy" as Difficulty, status: "solved", points: "100 / 100", attempts: 1 },
-  { label: "B", title: "Longest Substring", difficulty: "Medium" as Difficulty, status: "attempted", points: "0 / 200", attempts: 3 },
-  { label: "C", title: "Median of Two Arrays", difficulty: "Hard" as Difficulty, status: "none", points: "0 / 300", attempts: 0 },
-  { label: "D", title: "Valid Parentheses", difficulty: "Easy" as Difficulty, status: "none", points: "0 / 100", attempts: 0 },
+  {
+    label: "A",
+    title: "Two Sum",
+    difficulty: "easy" as Difficulty,
+    status: "solved",
+    points: "100 / 100",
+    attempts: 1,
+  },
+  {
+    label: "B",
+    title: "Longest Substring",
+    difficulty: "medium" as Difficulty,
+    status: "attempted",
+    points: "0 / 200",
+    attempts: 3,
+  },
+  {
+    label: "C",
+    title: "Median of Two Arrays",
+    difficulty: "hard" as Difficulty,
+    status: "none",
+    points: "0 / 300",
+    attempts: 0,
+  },
+  {
+    label: "D",
+    title: "Valid Parentheses",
+    difficulty: "easy" as Difficulty,
+    status: "none",
+    points: "0 / 100",
+    attempts: 0,
+  },
 ];
 
 export const contestStandings = [

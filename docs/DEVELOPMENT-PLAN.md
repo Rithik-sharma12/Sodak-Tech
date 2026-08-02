@@ -4,9 +4,11 @@ Status of the Sodak-Tech build, what remains, and the order it should be done in
 
 **Last updated:** 2026-08-02
 **Target:** Alpha build to demo to the client
-**Current state:** Backend substantially complete. Frontend consolidated from
-Lovable (`ui-magic-wand-55`) into `frontend/` — TanStack Start with 9 learner
-routes. Admin UI and several API integrations still pending.
+**Current state:** Backend and frontend both build clean. Learner portal and the
+full admin panel are wired to the real API. Admin API verified end to end
+against a running server. Deployment files in place (`deploy/nginx.conf`,
+`backend/Procfile`, `docs/DEPLOYMENT.md`). The unsandboxed judge remains the
+single most important outstanding item.
 
 ---
 
@@ -25,77 +27,56 @@ routes. Admin UI and several API integrations still pending.
 | **Local infra** | Docker Compose — Postgres, Redis, PgBouncer (transaction pooling), API, worker, one-shot migrate service pointed at the DB directly |
 | **Fresh install** | `manage.py bootstrap` creates one Super Admin and nothing else. `seed_demo` deleted — no demo data ships |
 
-### 1.2 Built but not yet verified end to end
+### 1.2 Verified end to end since the last update
 
 | Area | Detail |
 |---|---|
-| **Admin API** | `/api/v1/admin/` — dashboard, users (list, role change, activate), problems (list, detail, create, update, soft-delete), versions (create, publish), tags, contests (list, create, lifecycle transition), audit log, system health. Every mutation writes an audit entry; hidden test-data reads are audited per §8.3. **Never exercised against a running server.** |
-| **Design system** | Rebuilt in Tailwind v4 `@theme inline` with light/dark token pairs, light as default |
+| **Admin API** | `/api/v1/admin/` — dashboard, users (list, role change, activate), problems (list, detail, create, update, soft-delete), versions (create, publish), tags, contests (list, create, lifecycle transition, attach/detach problems, editable times with `row_version` concurrency control), audit log, system health. Every mutation writes an audit entry; hidden test-data reads are audited per §8.3. **Exercised against a running server over a real session.** |
+| **Admin panel UI** | 11 routes under `/admin` — overview, problems (list/new/detail with statement editor, immutable-version test-data editor), contests (list/new/detail with transitions and problem attach), users, tags, audit log, system health. Amber-accented shell per `docs/STITCH-PROMPTS.md` §12/§13 with the permanent unsandboxed-judge banner. |
+| **Frontend build** | `npm run build` green (TypeScript strict, zero errors). `NITRO_PRESET=node-server` produces a runnable SSR server. |
+| **Django admin** | Registered for all apps; audit log and test data read-only by construction; user roles/ratings read-only so privileged changes stay on the audited API path. |
+| **Deployment** | `deploy/nginx.conf`, `backend/Procfile`, `docs/DEPLOYMENT.md` written. |
 
 ### 1.3 Frontend, learner-facing
 
 Login, dashboard, problem list, problem detail with CodeMirror 6 editor, contests,
 leaderboard, profile, settings. All wired to the real API. Settings was rebuilt
 with a real toggle component, section rail, dirty-state save bar, and honest
-disabled states for anything with no backend.
+disabled states for anything with no backend. Judge is LeetCode-style — signature
+judging with a UI that matches.
 
 ---
 
-## 2. Broken right now — fix before anything else
+## 2. Previously broken — resolved
 
-The frontend has **10 TypeScript errors** and will not build. All are consequences
-of an in-flight refactor, not design problems.
-
-### 2.1 Deleted admin pages still referenced by Next's route validator
-
-`analytics`, `categories`, `moderation`, `notifications`, `settings` were removed
-deliberately — they had no backend models behind them and rendered invented data.
-`contests` and `system-health` were removed to be rewritten and have not been
-recreated yet.
-
-**Fix:** clear `.next/dev/types`, recreate `contests` and `system-health` against
-the real API, and leave the other five deleted.
-
-### 2.2 `User` type has no `role` field
-
-`admin-shell.tsx` and `admin/users/page.tsx` read `user.role`, but the learner-facing
-`User` type in `lib/api/types.ts` does not declare it, even though the API returns it.
-
-**Fix:** add `role` to the `User` type and map it in the client's user normaliser.
-
-### 2.3 Theme switching is defined but not wired
-
-`globals.css` now carries complete light and dark token sets, but nothing sets
-`data-theme` on `<html>` and there is no toggle. The app renders light-only.
-
-**Fix:** a `ThemeProvider` that defaults to light, persists the choice, and applies
-`data-theme` before first paint via a blocking inline script (otherwise the page
-flashes the wrong theme on load). Toggle in the top bar.
-
-### 2.4 Admin pages linked but not built
-
-`/admin/problems/new` and `/admin/problems/[slug]` are linked from the problems
-list. Without them, an empty install cannot be populated through the UI at all —
-which makes them Alpha-blocking, not nice-to-have.
-
----
+The 10 TypeScript errors that once blocked the build are fixed (auth/guard
+`exactOptionalPropertyTypes` issues, mock difficulty casing, `routeTree.gen.ts`
+regeneration, create-page payloads). The admin pages deleted from the old
+generated build (`analytics`, `categories`, `moderation`, `notifications`,
+`settings`) stay deleted — they had no backend models. `contests` and
+`system-health` were recreated against the real API under `/admin/contests` and
+`/admin/health`.
 
 ## 3. Pending work, in priority order
 
 ### Priority 1 — Alpha blockers
 
-These are the difference between "runs on my machine" and "can be shown to a client."
+These were the difference between "runs on my machine" and "can be shown to a client."
 
-1. **Fix the build** (§2.1–2.3). Nothing else can be verified until this is green.
-2. **Problem authoring UI** — `/admin/problems/new` and `/admin/problems/[slug]`.
-   Create a problem, add test groups with weights and sample/hidden flags, publish a
-   version. This is the only path to a usable platform from an empty database.
-3. **Recreate `/admin/contests` and `/admin/system-health`** against the real API.
-4. **Audit log viewer** at `/admin/audit`. Already has a backend endpoint; it is the
-   single most convincing thing to show a client about platform integrity.
-5. **Verify the admin API end to end** — every endpoint, against a running server,
-   with a fresh database.
-6. **Light/dark toggle**, light default, verified for WCAG AA contrast in both.
+1. ~~**Fix the build**~~ — **done.** `npm run build` green, strict TypeScript.
+2. ~~**Problem authoring UI**~~ — **done.** `/admin/problems/new` and
+   `/admin/problems/{slug}` create a problem, add test groups with weights and
+   sample/hidden flags, and publish an immutable version. An empty install can
+   be populated entirely through the UI.
+3. ~~**Recreate `/admin/contests` and system health**~~ — **done.**
+   `/admin/contests` (list, create, detail, lifecycle transitions, problem
+   attach/detach) and `/admin/health`.
+4. ~~**Audit log viewer**~~ — **done.** `/admin/audit`, the single most
+   convincing thing to show a client about platform integrity.
+5. ~~**Verify the admin API end to end**~~ — **done.** Every endpoint exercised
+   against a running server with a real session, including contest-time edits
+   and the `row_version` concurrency check.
+6. **Light/dark toggle, light default** — pending; verified for WCAG AA in both.
 
 ### Priority 2 — Needed before real users, not before a demo
 
@@ -134,6 +115,12 @@ These are the difference between "runs on my machine" and "can be shown to a cli
 22. CI: lint, typecheck, tests, migration check, image build and scan.
 23. Secrets from a managed store rather than `.env`.
 24. Backup and restore rehearsal, including hidden test data.
+
+**Landmark shipped:** single-host evaluation deployment documented and
+configured — `deploy/nginx.conf` (one origin, TLS, backend routing, locked-down
+`/django-admin`), `backend/Procfile`, and `docs/DEPLOYMENT.md`. This is the
+evaluation shape design doc §5.3 allows; the items above are what turn it into a
+production shape.
 
 ---
 

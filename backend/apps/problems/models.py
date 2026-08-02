@@ -33,6 +33,23 @@ class Difficulty(models.TextChoices):
     HARD = "hard", _("Hard")
 
 
+class JudgingMode(models.TextChoices):
+    """How a learner's code is run against test cases.
+
+    `io` is the classic OJ contract: the submission is a complete program that
+    reads stdin and writes stdout.
+
+    `signature` is the LeetCode-style contract (§ design note): the submission
+    is just the solution function, and the version's `signature_templates`
+    carry per-language driver code that parses the same test-case input, calls
+    the learner's function, and prints the result. The driver is setter-authored
+    and versioned like everything else the judge depends on.
+    """
+
+    IO = "io", _("I/O (stdin/stdout)")
+    SIGNATURE = "signature", _("Function signature")
+
+
 class Tag(TimestampedModel):
     """Topic tag. Drives the per-tag skill breakdown in §3 of the design doc."""
 
@@ -157,6 +174,22 @@ class ProblemVersion(UUIDPrimaryKeyModel, TimestampedModel):
     # Language runtimes pinned by digest, displayed to users (§5.2 of the stack
     # doc). Shape: {"python": "python:3.13-slim@sha256:...", ...}
     language_images = models.JSONField(default=dict, blank=True)
+
+    # How submissions are executed against the test set.
+    judge_mode = models.CharField(
+        max_length=16,
+        choices=JudgingMode.choices,
+        default=JudgingMode.IO,
+        db_index=True,
+    )
+
+    # Per-language (starter, driver) pairs for signature-mode problems. The
+    # driver is the setter-authored harness: it parses `input_data`, calls the
+    # learner's function and prints the result. `%%USER_CODE%%` marks where the
+    # submitted source is injected. Part of the version, so a signature change
+    # is a new version like any other judging-relevant change.
+    # Shape: {"python": {"starter": "...", "driver": "..."}, ...}
+    signature_templates = models.JSONField(default=dict, blank=True)
 
     # The rubric this version is scored against. Stored so that a score can be
     # recomputed later -- principle 4: "A stored final score that cannot be
