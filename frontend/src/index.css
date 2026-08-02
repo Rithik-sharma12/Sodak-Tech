@@ -1,0 +1,77 @@
+@import 'tailwindcss';
+
+/* ============================================================================
+   Layout foundation
+   ============================================================================
+
+   Two things here fix the proportion problems, and both are easy to miss.
+
+   1. The height chain. A child using `h-full` resolves against its parent's
+      height, so if html / body / #root have no height, every `h-full` below
+      them silently collapses to content height. Tailwind's preflight zeroes
+      margins but does not set height, so this has to be declared.
+
+   2. `min-height: 0` on flex children. A flex item defaults to
+      `min-height: auto`, which refuses to shrink below its content — so a
+      panel with `overflow-y-auto` inside a flex column grows past the viewport
+      instead of scrolling internally. That is what makes a full-height IDE
+      layout spill and push the whole page into a scroll.
+   ========================================================================= */
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  /* Nothing should ever scroll the page sideways. Wide content — tables, code,
+     diagrams — scrolls inside its own container instead. */
+  overflow-x: hidden;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Flex or grid children that hold their own scroll area. Applied through this
+   class rather than globally, so ordinary layouts keep default intrinsic
+   sizing. */
+.pane {
+  min-height: 0;
+  min-width: 0;
+}
+
+/* Long words and URLs must not force horizontal overflow on narrow screens. */
+p,
+h1,
+h2,
+h3,
+h4,
+li,
+td,
+th {
+  overflow-wrap: break-word;
+}
+
+/* Code blocks scroll themselves rather than stretching their container. */
+pre {
+  overflow-x: auto;
+  max-width: 100%;
+}
+
+/* Tabular figures for anything numeric that updates in place — runtimes,
+   memory, scores, countdowns — so digits do not shift width as they change. */
+.tnum {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: 'tnum';
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

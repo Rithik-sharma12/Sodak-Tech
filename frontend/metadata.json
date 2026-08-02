@@ -1,0 +1,6 @@
+{
+  "name": "Sodak-Tech Competitive Programming",
+  "description": "University competitive programming and algorithm practice platform with live code runner, contests, leaderboards, and admin tools.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
